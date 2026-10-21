@@ -1,5 +1,5 @@
 import { lancer } from './apify';
-import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles } from './cibles';
+import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
 
 const ETATS: Record<string, string> = {
@@ -62,9 +62,16 @@ export async function pageRecherches(url: URL, env: Env) {
   const cible = cibles[url.searchParams.get('cible') ?? ''] ?? Object.values(cibles)[0];
   const nomCible = cible?.cle ?? '';
   const faits = await termesRecents(env);
-  const communesFaites = (cible?.communes ?? []).map((commune) => ({ commune, le: faits.get(normaliserTerme(`${cible.recherche} ${commune}`)) }));
-  const restantes = communesFaites.filter(({ le }) => !le).map(({ commune }) => commune);
+  // Une commune est faite quand tous les métiers de la cible y ont été cherchés.
+  const termes = cible ? termesCible(cible) : [];
+  const aFaire = termes.filter(({ terme }) => !faits.has(terme));
+  const restantes = [...new Set(aFaire.map(({ commune }) => commune))];
+  const communesFaites = (cible?.communes ?? []).map((commune) => ({
+    commune,
+    le: restantes.includes(commune) ? undefined : faits.get(normaliserTerme(`${cible.metiers[0]} ${commune}`)),
+  }));
   const dejaFaites = communesFaites.filter(({ le }) => le);
+  const MAX_DEFAUT = 30;
   const [recherches, enAnalyse, passage, journal] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM recherches ORDER BY id DESC LIMIT 30'),
     env.DB.prepare("SELECT COUNT(*) AS n FROM prospects WHERE statut = 'a_analyser'"),
@@ -104,24 +111,30 @@ export async function pageRecherches(url: URL, env: Env) {
     </header>
     <div class="grille deux-colonnes">
       <form method="post" action="/recherches" class="carte">
-        <div class="carte-entete"><div><h2 class="carte-titre">Nouvelle recherche</h2><p class="carte-description">Chaque commune devient une recherche Google Maps « métier commune ».</p></div></div>
+        <div class="carte-entete"><div><h2 class="carte-titre">Nouvelle recherche</h2><p class="carte-description">Chaque métier est cherché dans chaque commune sur Google Maps.</p></div></div>
         <div class="carte-contenu formulaire">
+          <div class="champ"><label for="cible">Cible</label>
+            <select id="cible" name="cible" onchange="location.search = '?cible=' + this.value">${optionsCibles(cibles, nomCible)}</select></div>
+          ${
+            termes.length
+              ? `<div class="alerte"><p><strong>${aFaire.length} recherches à faire sur ${termes.length}</strong> pour cette cible, soit jusqu’à ${aFaire.length * MAX_DEFAUT} fiches avec ${MAX_DEFAUT} fiches par recherche. Les recherches déjà faites sont sautées au lancement.</p></div>`
+              : ''
+          }
           <div class="ligne">
-            <div class="champ"><label for="cible">Cible</label>
-              <select id="cible" name="cible" onchange="location.search = '?cible=' + this.value">${optionsCibles(cibles, nomCible)}</select></div>
-            <div class="champ"><label for="metier">Métier recherché</label>
-              <input id="metier" type="text" name="metier" value="${echapper(cible?.recherche ?? '')}" required></div>
+            <div class="champ"><label for="metiers">Métiers</label>
+              <textarea id="metiers" name="metiers" rows="9" required>${echapper((cible?.metiers ?? []).join('\n'))}</textarea>
+              <span class="aide">Un par ligne.</span></div>
+            <div class="champ"><label for="communes">Communes</label>
+              <textarea id="communes" name="communes" rows="9" required>${echapper(restantes.join('\n'))}</textarea>
+              <span class="aide">Une par ligne. Celles qui restent à faire (<a href="/cibles?cle=${encodeURIComponent(nomCible)}">modifier la cible</a>).</span></div>
           </div>
-          <div class="champ"><label for="communes">Communes</label>
-            <textarea id="communes" name="communes" rows="9" required>${echapper(restantes.join('\n'))}</textarea>
-            <span class="aide">Une par ligne. Préremplie avec les communes de la cible pas encore couvertes (<a href="/cibles?cle=${encodeURIComponent(nomCible)}">modifier la cible</a>).</span>
-            ${
-              dejaFaites.length
-                ? `<span class="aide">Déjà faites ces 6 derniers mois, ${dejaFaites.length} sur ${communesFaites.length} : ${dejaFaites.map(({ commune, le }) => `${echapper(commune)} (${jour(le!)})`).join(', ')}.</span>`
-                : ''
-            }</div>
-          <div class="champ"><label for="max">Fiches maximum par commune</label>
-            <input id="max" type="number" name="max" value="30" min="1" max="200" required></div>
+          ${
+            dejaFaites.length
+              ? `<p class="aide">Déjà faites ces 6 derniers mois pour tous les métiers, ${dejaFaites.length} communes sur ${communesFaites.length} : ${dejaFaites.map(({ commune, le }) => `${echapper(commune)} (${jour(le!)})`).join(', ')}.</p>`
+              : ''
+          }
+          <div class="champ"><label for="max">Fiches maximum par recherche</label>
+            <input id="max" type="number" name="max" value="${MAX_DEFAUT}" min="1" max="200" required></div>
           <label class="case"><input type="checkbox" name="contacts" value="1" checked>
             <span><strong>Extraire les emails avec Apify</strong>Option payante « contacts enrichment », quelques dollars pour 1 000 fiches.</span></label>
           <label class="case"><input type="checkbox" name="forcer" value="1">
@@ -155,15 +168,19 @@ export async function lancerRecherche(requete: Request, env: Env) {
   const nomCible = String(donnees.get('cible') ?? '');
   const cibles = await chargerCibles(env);
   if (!(nomCible in cibles)) return new Response('Cible inconnue', { status: 400 });
-  const metier = String(donnees.get('metier') ?? '').trim();
-  const communes = String(donnees.get('communes') ?? '')
-    .split('\n')
-    .map((commune) => commune.trim())
-    .filter(Boolean);
+  const lignes = (champ: string) =>
+    String(donnees.get(champ) ?? '')
+      .split('\n')
+      .map((ligne) => ligne.trim())
+      .filter(Boolean);
+  const metiers = lignes('metiers');
+  const communes = lignes('communes');
   const max = Math.min(200, Math.max(1, Number(donnees.get('max')) || 30));
-  if (!metier || !communes.length) return new Response('Métier et communes obligatoires', { status: 400 });
+  if (!metiers.length || !communes.length) return new Response('Métiers et communes obligatoires', { status: 400 });
 
-  const demandes = [...new Map(communes.map((commune) => [normaliserTerme(`${metier} ${commune}`), `${metier} ${commune}`])).entries()];
+  const demandes = [
+    ...new Map(communes.flatMap((commune) => metiers.map((metier) => [normaliserTerme(`${metier} ${commune}`), `${metier} ${commune}`] as const))).entries(),
+  ];
   const faits = donnees.get('forcer') === '1' ? new Map<string, string>() : await termesRecents(env);
   const termes = demandes.filter(([cle]) => !faits.has(cle)).map(([, terme]) => terme);
   const sautes = demandes.length - termes.length;

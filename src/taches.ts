@@ -66,7 +66,7 @@ const UPSERT = `INSERT INTO prospects
 export function ligneImport(fiche: Record<string, unknown>, nomCible: string, cible: Cible | undefined, maintenant: string) {
   const prospect = normaliser(fiche);
   if (!prospect.nom) return null;
-  if (!prospect.recherche) prospect.recherche = `${cible?.recherche ?? ''} ${prospect.ville}`.trim();
+  if (!prospect.recherche) prospect.recherche = `${cible?.metiers[0] ?? ''} ${prospect.ville}`.trim();
   const raison = cible ? exclusion(prospect, cible) : null;
   return [
     identifiant(prospect, cleDoublon(prospect)),

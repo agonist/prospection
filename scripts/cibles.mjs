@@ -18,15 +18,33 @@ export const CONSTATS = {
   vieuxCopyright: "votre site n'a pas l'air d'avoir été mis à jour depuis {annee}",
 };
 
+// À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
+// lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
+// de ce qui a été modifié à la main.
+export const VERSION_CIBLES = 2;
+
+// Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
+const VILLES = [
+  'Wissembourg', 'Haguenau', 'Bischwiller', 'Brumath', 'Saverne', 'Schiltigheim', 'Bischheim', 'Hoenheim', 'Strasbourg',
+  'Lingolsheim', 'Ostwald', 'Illkirch-Graffenstaden', 'Geispolsheim', 'Molsheim', 'Obernai', 'Erstein', 'Benfeld', 'Sélestat',
+  'Ribeauvillé', 'Colmar', 'Wintzenheim', 'Ensisheim', 'Guebwiller', 'Soultz-Haut-Rhin', 'Cernay', 'Thann', 'Wittenheim',
+  'Kingersheim', 'Mulhouse', 'Illzach', 'Rixheim', 'Riedisheim', 'Saint-Louis', 'Huningue', 'Altkirch',
+];
+
 export const CIBLES = {
   vin: {
     nom: 'Domaines viticoles',
-    recherche: 'domaine viticole',
+    metiers: ['domaine viticole', 'vigneron'],
     // Villages de la route des vins d'Alsace, du nord au sud.
     communes: [
       'Marlenheim', 'Wolxheim', 'Molsheim', 'Rosheim', 'Obernai', 'Barr', 'Mittelbergheim', 'Andlau', 'Itterswiller',
       'Dambach-la-Ville', 'Scherwiller', 'Châtenois', 'Bergheim', 'Ribeauvillé', 'Hunawihr', 'Riquewihr', 'Kaysersberg',
       'Ammerschwihr', 'Turckheim', 'Eguisheim', 'Pfaffenheim', 'Rouffach', 'Guebwiller', 'Thann',
+      'Bergbieten', 'Dahlenheim', 'Traenheim', 'Dorlisheim', 'Mutzig', 'Boersch', 'Ottrott', 'Heiligenstein', 'Blienschwiller',
+      'Nothalten', 'Epfig', 'Orschwiller', 'Kintzheim', 'Saint-Hippolyte', 'Rodern', 'Rorschwihr', 'Zellenberg', 'Beblenheim',
+      'Mittelwihr', 'Bennwihr', 'Sigolsheim', 'Kientzheim', 'Katzenthal', 'Niedermorschwihr', 'Ingersheim', 'Wintzenheim',
+      'Wettolsheim', 'Husseren-les-Châteaux', 'Voegtlinshoffen', 'Gueberschwihr', 'Westhalten', 'Soultzmatt', 'Orschwihr',
+      'Bergholtz', 'Wuenheim', 'Cernay',
     ],
     exclure: [/coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i],
     constats: [
@@ -42,8 +60,8 @@ export const CIBLES = {
   },
   'bien-etre': {
     nom: 'Bien-être',
-    recherche: 'naturopathe',
-    communes: ['Strasbourg', 'Colmar', 'Mulhouse', 'Haguenau', 'Sélestat', 'Obernai', 'Molsheim', 'Saverne'],
+    metiers: ['naturopathe', 'sophrologue', 'ostéopathe', 'kinésiologue', 'réflexologue', 'hypnothérapeute', 'masseur bien-être'],
+    communes: VILLES,
     exclure: [/\bspa\b/i, /institut de beaut[ée]/i, /\bh[ôo]pital\b/i, /\bclinique\b/i],
     constats: [
       'pasDeSite',
@@ -58,8 +76,8 @@ export const CIBLES = {
   },
   artisan: {
     nom: 'Artisans du bâtiment',
-    recherche: 'menuisier',
-    communes: ['Strasbourg', 'Colmar', 'Mulhouse', 'Haguenau', 'Sélestat', 'Obernai', 'Molsheim', 'Saverne'],
+    metiers: ['menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon'],
+    communes: VILLES,
     exclure: [/leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i],
     constats: [
       'pasDeSite',

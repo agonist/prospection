@@ -1,19 +1,19 @@
 // Les cibles (métier, communes, exclusions, ordre des constats) sont gardées en
 // base pour être modifiables dans l'admin. scripts/cibles.mjs donne les valeurs
 // de départ, insérées au premier chargement.
-import { CIBLES, CONSTATS } from '../scripts/cibles.mjs';
+import { CIBLES, CONSTATS, VERSION_CIBLES } from '../scripts/cibles.mjs';
 import { echapper, icone, page } from './html';
 
 export type Cible = {
   cle: string;
   nom: string;
-  recherche: string;
+  metiers: string[];
   communes: string[];
   exclure: RegExp[];
   constats: string[];
 };
 
-type Ligne = { cle: string; nom: string; recherche: string; communes: string; exclure: string; constats: string };
+type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string };
 
 // Une recherche déjà faite depuis moins de 6 mois n'est pas relancée.
 export const DELAI_TERMES_MS = 183 * 24 * 60 * 60 * 1000;
@@ -26,7 +26,7 @@ function versCible(ligne: Ligne): Cible {
   return {
     cle: ligne.cle,
     nom: ligne.nom,
-    recherche: ligne.recherche,
+    metiers: JSON.parse(ligne.metiers),
     communes: JSON.parse(ligne.communes),
     exclure: (JSON.parse(ligne.exclure) as string[]).map((motif) => new RegExp(motif, 'i')),
     constats: JSON.parse(ligne.constats),
@@ -35,13 +35,14 @@ function versCible(ligne: Ligne): Cible {
 
 function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   return env.DB.prepare(
-    `INSERT INTO cibles (cle, nom, recherche, communes, exclure, constats, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, communes = excluded.communes,
+    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes,
         exclure = excluded.exclure, constats = excluded.constats, modifie_le = excluded.modifie_le`,
   ).bind(
     cle,
     cible.nom,
-    cible.recherche,
+    cible.metiers[0] ?? '',
+    JSON.stringify(cible.metiers),
     JSON.stringify(cible.communes),
     JSON.stringify(cible.exclure.map((motif) => motif.source)),
     JSON.stringify(cible.constats),
@@ -49,12 +50,47 @@ function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   );
 }
 
+function unir<T>(existants: T[], ajouts: T[], cle: (valeur: T) => string = String) {
+  const vus = new Set(existants.map(cle));
+  return [...existants, ...ajouts.filter((valeur) => !vus.has(cle(valeur)))];
+}
+
+// Charge les cibles. Au premier lancement, ou quand scripts/cibles.mjs a une
+// version plus récente, ajoute les cibles, métiers, communes et exclusions
+// manquants, sans retirer ce qui a été modifié dans l'admin.
 export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
-  const { results } = await env.DB.prepare('SELECT * FROM cibles ORDER BY rowid').all<Ligne>();
-  if (results.length) return Object.fromEntries(results.map((ligne) => [ligne.cle, versCible(ligne)]));
+  const [lignes, version] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM cibles ORDER BY rowid'),
+    env.DB.prepare("SELECT valeur FROM etat WHERE cle = 'version_cibles'"),
+  ]);
+  const cibles = Object.fromEntries((lignes.results as Ligne[]).map((ligne) => [ligne.cle, versCible(ligne)]));
+  if (Number((version.results[0] as { valeur: string } | undefined)?.valeur ?? 0) >= VERSION_CIBLES) return cibles;
+
   const defauts = Object.entries(CIBLES) as [string, Omit<Cible, 'cle'>][];
-  await env.DB.batch(defauts.map(([cle, cible]) => insertion(env, cle, cible)));
-  return Object.fromEntries(defauts.map(([cle, cible]) => [cle, { cle, ...cible }]));
+  for (const [cle, defaut] of defauts) {
+    const actuelle = cibles[cle];
+    cibles[cle] = actuelle
+      ? {
+          ...actuelle,
+          metiers: unir(actuelle.metiers, defaut.metiers, normaliserTerme),
+          communes: unir(actuelle.communes, defaut.communes, normaliserTerme),
+          exclure: unir(actuelle.exclure, defaut.exclure, (motif) => motif.source),
+        }
+      : { cle, ...defaut };
+  }
+  await env.DB.batch([
+    ...defauts.map(([cle]) => insertion(env, cle, cibles[cle])),
+    env.DB.prepare("INSERT INTO etat (cle, valeur) VALUES ('version_cibles', ?) ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur").bind(
+      String(VERSION_CIBLES),
+    ),
+  ]);
+  // Les cibles par défaut d'abord, dans leur ordre, puis celles créées dans l'admin.
+  return Object.fromEntries([...defauts.map(([cle]) => cle), ...Object.keys(cibles)].map((cle) => [cle, cibles[cle]]));
+}
+
+// Les recherches « métier commune » d'une cible.
+export function termesCible(cible: Pick<Cible, 'metiers' | 'communes'>) {
+  return cible.communes.flatMap((commune) => cible.metiers.map((metier) => ({ commune, metier, terme: normaliserTerme(`${metier} ${commune}`) })));
 }
 
 export function optionsCibles(cibles: Record<string, Cible>, choisie: string) {
@@ -87,16 +123,17 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
 
   const choisie = url.searchParams.get('cle') ?? '';
   const nouvelle = url.searchParams.has('nouvelle');
-  const cible: Cible = cibles[choisie] ?? { cle: '', nom: '', recherche: '', communes: [], exclure: [], constats: ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'] };
+  const cible: Cible = cibles[choisie] ?? { cle: '', nom: '', metiers: [], communes: [], exclure: [], constats: ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'] };
 
   const rangees = Object.values(cibles)
     .map((c) => {
-      const couvertes = c.communes.filter((commune) => faits.has(normaliserTerme(`${c.recherche} ${commune}`))).length;
+      const termes = termesCible(c);
+      const couvertes = termes.filter(({ terme }) => faits.has(terme)).length;
       const n = chiffres[c.cle];
       return `<tr>
-        <td><a class="nom" href="/cibles?cle=${encodeURIComponent(c.cle)}">${echapper(c.nom)}</a><div class="discret">${echapper(c.recherche)}</div></td>
+        <td><a class="nom" href="/cibles?cle=${encodeURIComponent(c.cle)}">${echapper(c.nom)}</a><div class="discret tronque">${echapper(c.metiers.join(', '))}</div></td>
         <td>${n?.n ?? 0}<div class="discret">${n?.prets ?? 0} prêts · ${n?.clients ?? 0} clients</div></td>
-        <td>${barre(couvertes, c.communes.length, `${couvertes} / ${c.communes.length} communes`)}</td>
+        <td>${barre(couvertes, termes.length, `${couvertes} / ${termes.length} recherches`)}<div class="discret">${c.metiers.length} métiers × ${c.communes.length} communes</div></td>
         <td class="actions-ligne"><a class="btn contour petit" href="/?cible=${encodeURIComponent(c.cle)}">Prospects</a><a class="btn petit" href="/recherches?cible=${encodeURIComponent(c.cle)}">${icone('recherches', 14)}Rechercher</a></td>
       </tr>`;
     })
@@ -119,14 +156,16 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
         <p class="carte-description">Une cible regroupe un métier, ses communes et les constats qui comptent pour lui.</p></div></div>
       <div class="carte-contenu formulaire">
         <input type="hidden" name="cle" value="${echapper(cible.cle)}">
+        <div class="champ"><label for="nom">Nom</label><input id="nom" type="text" name="nom" value="${echapper(cible.nom)}" placeholder="Restaurants" required></div>
         <div class="ligne">
-          <div class="champ"><label for="nom">Nom</label><input id="nom" type="text" name="nom" value="${echapper(cible.nom)}" placeholder="Restaurants" required></div>
-          <div class="champ"><label for="recherche">Métier recherché sur Google Maps</label><input id="recherche" type="text" name="recherche" value="${echapper(cible.recherche)}" placeholder="restaurant" required></div>
+          <div class="champ"><label for="metiers">Métiers cherchés sur Google Maps</label><textarea id="metiers" name="metiers" rows="10" placeholder="restaurant&#10;pizzeria" required>${echapper(cible.metiers.join('\n'))}</textarea>
+            <span class="aide">Un par ligne. Chaque métier est cherché dans chaque commune.</span></div>
+          <div class="champ"><label for="communes">Communes</label><textarea id="communes" name="communes" rows="10">${echapper(cible.communes.join('\n'))}</textarea><span class="aide">Une par ligne.</span></div>
         </div>
         <div class="ligne">
-          <div class="champ"><label for="communes">Communes</label><textarea id="communes" name="communes" rows="10">${echapper(cible.communes.join('\n'))}</textarea><span class="aide">Une par ligne.</span></div>
           <div class="champ"><label for="exclure">Mots qui excluent une fiche</label><textarea id="exclure" name="exclure" rows="10" placeholder="franchise">${echapper(cible.exclure.map((motif) => motif.source).join('\n'))}</textarea>
             <span class="aide">Un par ligne, cherché dans le nom et la catégorie Google. Les expressions régulières marchent aussi.</span></div>
+          <div></div>
         </div>
         <div class="champ"><label>Constats, par priorité</label>
           <span class="aide">Le premier constat vrai pour un site part dans l’email. Laisse vide pour ne pas utiliser un constat.</span>
@@ -143,7 +182,7 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
       <div class="actions-entete"><a href="/cibles?nouvelle" class="btn">${icone('plus')}Nouvelle cible</a></div>
     </header>
     ${erreur ? `<div class="alerte danger"><p>${echapper(erreur)}</p></div>` : ''}
-    <div class="carte"><div class="tableau"><table><thead><tr><th>Cible</th><th>Prospects</th><th>Couverture (6 derniers mois)</th><th></th></tr></thead><tbody>${rangees}</tbody></table></div></div>
+    <div class="carte"><div class="tableau"><table><thead><tr><th>Cible</th><th>Prospects</th><th>Faites ces 6 derniers mois</th><th></th></tr></thead><tbody>${rangees}</tbody></table></div></div>
     ${formulaire}`,
     'cibles',
   );
@@ -157,7 +196,7 @@ export function barre(valeur: number, max: number, texte: string) {
 export async function enregistrerCible(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const nom = String(donnees.get('nom') ?? '').trim();
-  const recherche = String(donnees.get('recherche') ?? '').trim();
+  const metiers = lignes(donnees.get('metiers'));
   let cle = String(donnees.get('cle') ?? '');
   if (!cle) {
     // Nouvelle cible : une clé tirée du nom, sans écraser une cible existante.
@@ -166,7 +205,7 @@ export async function enregistrerCible(requete: Request, env: Env) {
     cle = base;
     for (let n = 2; cle in existantes; n++) cle = `${base}-${n}`;
   }
-  if (!nom || !recherche) return pageCibles(new URL(requete.url), env, 'Le nom et le métier sont obligatoires.');
+  if (!nom || !metiers.length) return pageCibles(new URL(requete.url), env, 'Le nom et le métier sont obligatoires.');
 
   const exclure: RegExp[] = [];
   for (const motif of lignes(donnees.get('exclure'))) {
@@ -182,6 +221,6 @@ export async function enregistrerCible(requete: Request, env: Env) {
     .sort((a, b) => a.rang - b.rang)
     .map(({ constat }) => constat);
 
-  await insertion(env, cle, { nom, recherche, communes: lignes(donnees.get('communes')), exclure, constats }).run();
+  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats }).run();
   return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}`, requete.url).toString(), 303);
 }
