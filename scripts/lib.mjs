@@ -185,7 +185,7 @@ export function natureEmail(email, nom = '', site = '') {
   return 'nominative';
 }
 
-const ADRESSE = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+const ADRESSE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // Garde la meilleure adresse de l'entreprise, de préférence sur le domaine du site.
 // Une adresse générique ou au nom de l'entreprise peut partir dans Smartlead ;
