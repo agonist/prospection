@@ -22,6 +22,12 @@ export const CIBLES = {
   vin: {
     nom: 'Domaines viticoles',
     recherche: 'domaine viticole',
+    // Villages de la route des vins d'Alsace, du nord au sud.
+    communes: [
+      'Marlenheim', 'Wolxheim', 'Molsheim', 'Rosheim', 'Obernai', 'Barr', 'Mittelbergheim', 'Andlau', 'Itterswiller',
+      'Dambach-la-Ville', 'Scherwiller', 'Châtenois', 'Bergheim', 'Ribeauvillé', 'Hunawihr', 'Riquewihr', 'Kaysersberg',
+      'Ammerschwihr', 'Turckheim', 'Eguisheim', 'Pfaffenheim', 'Rouffach', 'Guebwiller', 'Thann',
+    ],
     exclure: [/coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i],
     constats: [
       'pasDeSite',
@@ -37,6 +43,7 @@ export const CIBLES = {
   'bien-etre': {
     nom: 'Bien-être',
     recherche: 'naturopathe',
+    communes: ['Strasbourg', 'Colmar', 'Mulhouse', 'Haguenau', 'Sélestat', 'Obernai', 'Molsheim', 'Saverne'],
     exclure: [/\bspa\b/i, /institut de beaut[ée]/i, /\bh[ôo]pital\b/i, /\bclinique\b/i],
     constats: [
       'pasDeSite',
@@ -52,6 +59,7 @@ export const CIBLES = {
   artisan: {
     nom: 'Artisans du bâtiment',
     recherche: 'menuisier',
+    communes: ['Strasbourg', 'Colmar', 'Mulhouse', 'Haguenau', 'Sélestat', 'Obernai', 'Molsheim', 'Saverne'],
     exclure: [/leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i],
     constats: [
       'pasDeSite',

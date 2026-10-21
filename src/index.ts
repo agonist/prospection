@@ -1,8 +1,11 @@
 import { utilisateur } from './access';
 import { CIBLES } from '../scripts/cibles.mjs';
 import { echapper, page } from './html';
+import { lancerRecherche, pageRecherches } from './recherches';
+import { tache } from './taches';
 
 export const STATUTS: Record<string, string> = {
+  a_analyser: 'En analyse',
   nouveau: 'Prêt à contacter',
   a_verifier: 'À vérifier',
   plus_tard: 'Plus tard',
@@ -18,7 +21,7 @@ export const STATUTS: Record<string, string> = {
 const PAR_PAGE = 100;
 const TROIS_ANS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
 // Statuts qu'on efface au bout de 3 ans sans nouvelle (recommandation CNIL pour la prospection).
-const PURGEABLES = ['nouveau', 'a_verifier', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
+const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
 
 type Prospect = {
   id: string;
@@ -162,7 +165,7 @@ async function liste(url: URL, env: Env) {
   return page(
     'Prospects',
     `<header class="entete">
-      <h1>Prospects</h1>
+      <h1>Prospects <a href="/recherches" class="bouton">Nouvelle recherche</a></h1>
       <form class="filtres" method="get" action="/">
         <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles}</select>
         <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
@@ -185,7 +188,7 @@ async function liste(url: URL, env: Env) {
     ${
       prospects.length
         ? `<table><thead><tr><th>Établissement</th><th>Commune</th><th>Statut</th><th>Constat ou raison</th><th>Email</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table>`
-        : '<p class="vide">Aucun prospect ici. Importe une extraction avec <code>pnpm importer</code>.</p>'
+        : '<p class="vide">Aucun prospect ici. Lance une <a href="/recherches">nouvelle recherche</a>.</p>'
     }
     ${pagination}`,
   );
@@ -337,8 +340,14 @@ export default {
       return fiche(id, env, url.searchParams.has('ok'));
     }
     if (url.pathname === '/' && requete.method === 'GET') return liste(url, env);
+    if (url.pathname === '/recherches' && requete.method === 'GET') return pageRecherches(url, env);
+    if (url.pathname === '/recherches' && requete.method === 'POST') return lancerRecherche(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
     if (url.pathname === '/purger' && requete.method === 'POST') return purger(requete, env);
     return new Response('Page introuvable', { status: 404 });
+  },
+
+  async scheduled(_evenement, env) {
+    await tache(env);
   },
 } satisfies ExportedHandler<Env>;

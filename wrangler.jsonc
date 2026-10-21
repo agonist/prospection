@@ -17,7 +17,10 @@
     "ACCESS_EQUIPE": "",
     // « Application Audience (AUD) Tag » de l'application Access qui protège ce Worker.
     "ACCESS_AUD": "",
-    "ACCESS_DESACTIVE": "0"
+    "ACCESS_DESACTIVE": "0",
+    "APIFY_API": "https://api.apify.com"
   },
+  // Suit les recherches Apify et analyse les sites, une minute à la fois.
+  "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true }
 }

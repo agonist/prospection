@@ -23,7 +23,13 @@ const STYLE = `
 body { margin: 0; background: var(--fond); color: var(--texte); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
 a { color: var(--accent); }
-h1 { font-size: 24px; margin: 0; }
+h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 16px; }
+.bouton { font-size: 14px; font-weight: 500; text-decoration: none; background: var(--accent); color: var(--accent-texte); border-radius: 6px; padding: 6px 12px; }
+.recherche { display: grid; gap: 12px; max-width: 560px; }
+.recherche label { display: grid; gap: 4px; font-weight: 500; }
+.recherche input, .recherche select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--ligne); border-radius: 6px; padding: 6px 10px; }
+.recherche p { margin: 0; }
+.recherche button { justify-self: start; }
 h2 { font-size: 15px; margin: 24px 0 8px; }
 code { font-size: 13px; }
 .entete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }

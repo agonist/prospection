@@ -2,13 +2,17 @@
 
 La base de prospects de C'est bien beau. Chaque établissement trouvé sur Google Maps y est gardé, même quand il n'est pas intéressant aujourd'hui. Au fil des extractions, on construit une base de milliers d'entreprises, et on voit qui contacter, qui relancer, et qui ne jamais recontacter.
 
-- `scripts/importer.mjs` lit un export Google Maps (Apify ou Outscraper), visite chaque site pour trouver une adresse générique et un constat, puis enregistre tout dans la base.
-- `src/` est l'admin : un Worker Cloudflare avec une base D1, protégé par Cloudflare Access.
+Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé par Cloudflare Access) :
+
+1. **Nouvelle recherche** : tu choisis une cible, un métier et des communes. L'admin lance l'extraction Google Maps sur Apify.
+2. Toutes les minutes, une tâche planifiée récupère les fiches, les enregistre, puis visite chaque site pour trouver une adresse générique et un constat (environ 8 sites par minute).
+3. Tu relis les prospects prêts, puis tu exportes le CSV pour Smartlead.
 
 ## Les statuts
 
 | Statut | Posé par | Sens |
 | --- | --- | --- |
+| En analyse | la recherche | Fiche importée, site pas encore visité |
 | Prêt à contacter | l'import | Adresse générique et constat trouvés |
 | À vérifier | l'import | Pas d'email, email nominatif ou d'un autre domaine, site injoignable |
 | Plus tard | l'import | Le site a l'air correct aujourd'hui |
@@ -16,7 +20,7 @@ La base de prospects de C'est bien beau. Chaque établissement trouvé sur Googl
 | En campagne | l'export Smartlead | Envoyé dans Smartlead |
 | A répondu, Maquette envoyée, Client, Pas intéressé, Désinscrit | toi | Suivi à la main |
 
-Une nouvelle extraction met à jour les données d'une fiche (site, constat, téléphone…) et recalcule les quatre statuts de l'import. Elle ne touche jamais un statut posé à la main ni la note.
+Une nouvelle recherche met à jour les données d'une fiche (site, téléphone…) et réanalyse son site si son statut est automatique. Elle ne touche jamais un statut posé à la main ni la note.
 
 ## Mise en place (une seule fois)
 
@@ -27,28 +31,21 @@ pnpm wrangler d1 create prospection
 ```
 
 1. Copier l'identifiant affiché dans `database_id` de `wrangler.jsonc`.
-2. `pnpm db:migrer` crée la table dans la base en ligne.
-3. `pnpm publier` publie l'admin sur `prospection.<ton-compte>.workers.dev`.
-4. Dans le tableau de bord Cloudflare, **Zero Trust → Access → Applications → Add an application → Self-hosted**. Domaine : l'adresse du Worker. Règle : ton email uniquement.
-5. Copier le domaine de l'équipe (`xxx.cloudflareaccess.com`) dans `ACCESS_EQUIPE` et l'**Application Audience (AUD) Tag** dans `ACCESS_AUD` de `wrangler.jsonc`, puis `pnpm publier` à nouveau.
+2. `pnpm db:migrer` crée les tables dans la base en ligne.
+3. Sur [console.apify.com](https://console.apify.com), **Settings → API & Integrations**, copier la clé API, puis `pnpm wrangler secret put APIFY_TOKEN` et la coller.
+4. `pnpm publier` publie l'admin sur `prospection.<ton-compte>.workers.dev`.
+5. Dans le tableau de bord Cloudflare, **Zero Trust → Access → Applications → Add an application → Self-hosted**. Domaine : l'adresse du Worker. Règle : ton email uniquement.
+6. Copier le domaine de l'équipe (`xxx.cloudflareaccess.com`) dans `ACCESS_EQUIPE` et l'**Application Audience (AUD) Tag** dans `ACCESS_AUD` de `wrangler.jsonc`, puis `pnpm publier` à nouveau.
 
 Tant que ces deux valeurs sont vides, l'admin refuse toutes les requêtes.
 
-## Importer une extraction
+Sur le plan Workers gratuit, chaque passage de la tâche est limité à 10 ms de calcul. Si des analyses restent bloquées « En analyse » ou que les journaux du Worker signalent un dépassement, passer au plan Workers Paid (5 $ par mois).
 
-1. Sur [apify.com](https://apify.com), lancer **Google Maps Scraper** avec une recherche par métier et par commune : `domaine viticole Barr`, `domaine viticole Mittelbergheim`… Le texte de la recherche est réutilisé tel quel dans l'email (colonne `recherche`).
-2. **Export → JSON**, et enregistrer le fichier dans `donnees/` (ignoré par git).
-3. Lancer :
+## Lancer une recherche
 
-```sh
-pnpm importer --cible vin --entree donnees/vin-barr.json
-```
+Dans l'admin, **Nouvelle recherche** : la cible préremplit le métier et une liste de communes (dans `scripts/cibles.mjs`). Chaque ligne devient une recherche Google Maps « métier commune », dont le texte est réutilisé tel quel dans l'email (colonne `recherche`). La page des recherches montre l'avancement.
 
-Cibles : `vin`, `bien-etre`, `artisan` (dans `scripts/cibles.mjs`). Options :
-
-- `--limite 20` : n'analyse que les 20 premiers sites, pour un essai.
-- `--local` : écrit dans la base locale de `pnpm dev` au lieu de la base en ligne.
-- `--sans-base` : écrit seulement le fichier SQL à côté de l'export.
+L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis, les photos et l'extraction payante des contacts sont désactivés : l'analyse cherche les emails elle-même.
 
 ## Envoyer dans Smartlead
 
@@ -70,9 +67,11 @@ Les artisans et praticiens en nom propre sont des personnes physiques : leurs do
 ## Développement
 
 ```sh
-cp .dev.vars.exemple .dev.vars   # désactive Access en local
+cp .dev.vars.exemple .dev.vars   # désactive Access en local, y mettre la clé Apify
 pnpm db:migrer:local
-pnpm importer --cible vin --entree donnees/essai.json --local
-pnpm dev
-pnpm test && pnpm check
+pnpm dev                          # puis http://localhost:8787
+curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"   # déclenche la tâche à la main
+pnpm test && pnpm test:worker && pnpm check
 ```
+
+`pnpm dev` ne déclenche pas la tâche planifiée tout seul : l’appeler avec la commande `curl` ci-dessus.
