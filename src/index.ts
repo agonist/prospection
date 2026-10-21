@@ -1,6 +1,6 @@
 import { utilisateur } from './access';
 import { CIBLES } from '../scripts/cibles.mjs';
-import { echapper, page } from './html';
+import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
 
@@ -126,12 +126,17 @@ async function liste(url: URL, env: Env) {
   const purge = (aPurger.results[0] as { n: number }).n;
 
   const onglets = [
-    `<a href="${lienFiltres({ ...filtres, statut: '' })}" class="${filtres.statut ? '' : 'actif'}">Tous <span>${toutStatut}</span></a>`,
-    ...Object.entries(STATUTS).map(
-      ([statut, libelle]) =>
-        `<a href="${lienFiltres({ ...filtres, statut })}" class="${filtres.statut === statut ? 'actif' : ''}">${libelle} <span>${compteStatuts[statut] ?? 0}</span></a>`,
-    ),
+    `<a href="${lienFiltres({ ...filtres, statut: '' })}" class="${filtres.statut ? '' : 'actif'}">Tous <em>${toutStatut}</em></a>`,
+    ...Object.entries(STATUTS)
+      .filter(([statut]) => compteStatuts[statut] || filtres.statut === statut)
+      .map(
+        ([statut, libelle]) =>
+          `<a href="${lienFiltres({ ...filtres, statut })}" class="${filtres.statut === statut ? 'actif' : ''}">${libelle} <em>${compteStatuts[statut] ?? 0}</em></a>`,
+      ),
   ].join('');
+
+  const stat = (statut: string, libelle: string) =>
+    `<a class="carte stat" href="${lienFiltres({ ...filtres, statut })}"><span>${libelle}</span><strong>${compteStatuts[statut] ?? 0}</strong></a>`;
 
   const optionsCibles = Object.entries(CIBLES)
     .map(([cle, { nom }]) => `<option value="${cle}" ${filtres.cible === cle ? 'selected' : ''}>${echapper(nom)}</option>`)
@@ -144,12 +149,11 @@ async function liste(url: URL, env: Env) {
   const rangees = prospects
     .map(
       (p) => `<tr>
-        <td><a href="/p/${encodeURIComponent(p.id)}">${echapper(p.nom)}</a><div class="discret">${echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible)}</div></td>
-        <td>${echapper(p.ville)}</td>
+        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible)} · ${echapper(p.ville)}</div></td>
         <td>${badge(p.statut)}</td>
-        <td>${echapper(p.constat || p.raison)}</td>
-        <td>${echapper(p.email)}</td>
-        <td>${p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a>` : '<span class="discret">aucun</span>'}</td>
+        <td class="tronque">${echapper(p.constat || p.raison)}</td>
+        <td>${p.email ? echapper(p.email) : '<span class="discret">aucun</span>'}</td>
+        <td>${p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="lien-site">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}${icone('externe', 12)}</a>` : '<span class="discret">aucun</span>'}</td>
         <td class="discret">${date(p.vu_le)}</td>
       </tr>`,
     )
@@ -158,7 +162,7 @@ async function liste(url: URL, env: Env) {
   const pages = Math.ceil(nombre / PAR_PAGE);
   const pagination =
     pages > 1
-      ? `<nav class="pagination">${numero > 1 ? `<a href="${lienFiltres(filtres, { page: String(numero - 1) })}">← Précédents</a>` : ''}<span>Page ${numero} sur ${pages}</span>${numero < pages ? `<a href="${lienFiltres(filtres, { page: String(numero + 1) })}">Suivants →</a>` : ''}</nav>`
+      ? `<nav class="pagination"><span>Page ${numero} sur ${pages} · ${nombre} prospects</span><span class="actions-entete">${numero > 1 ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero - 1) })}">Précédents</a>` : ''}${numero < pages ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero + 1) })}">Suivants</a>` : ''}</span></nav>`
       : '';
 
   const exportable = filtres.statut === 'nouveau' && nombre > 0;
@@ -168,38 +172,44 @@ async function liste(url: URL, env: Env) {
 
   return page(
     'Prospects',
-    `<header class="entete">
-      <h1>Prospects <a href="/recherches" class="bouton">Nouvelle recherche</a></h1>
-      <form class="filtres" method="get" action="/">
-        <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles}</select>
-        <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
-        <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
-        <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Nom, email, site, note">
-        <button type="submit">Chercher</button>
-      </form>
+    `<header class="page-entete">
+      <div><h1>Prospects</h1><p>Tous les établissements trouvés, avec leur constat et leur statut.</p></div>
+      <div class="actions-entete"><a href="/recherches" class="btn">${icone('plus')}Nouvelle recherche</a></div>
     </header>
-    ${purge ? `<form class="alerte" method="post" action="/purger" onsubmit="return confirm('Effacer définitivement ${purge} prospects ?')"><p>${purge} prospects n’ont pas bougé depuis 3 ans. La CNIL recommande de les effacer.</p><button type="submit">Effacer</button></form>` : ''}
+    ${purge ? `<form class="alerte attention" method="post" action="/purger" onsubmit="return confirm('Effacer définitivement ${purge} prospects ?')"><p>${purge} prospects n’ont pas bougé depuis 3 ans. La CNIL recommande de les effacer.</p><button type="submit" class="btn contour petit">${icone('poubelle', 14)}Effacer</button></form>` : ''}
     ${
       enCours.recherches || enCours.analyses
-        ? `<p class="export">${enCours.recherches ? `${enCours.recherches} recherche${enCours.recherches > 1 ? 's' : ''} en cours. ` : ''}${enCours.analyses ? `${enCours.analyses} sites en attente d’analyse. ` : ''}<a href="/recherches">Voir l’avancement</a></p>`
+        ? `<div class="alerte"><span class="voyant"></span><p>${enCours.recherches ? `${enCours.recherches} recherche${enCours.recherches > 1 ? 's' : ''} en cours. ` : ''}${enCours.analyses ? `${enCours.analyses} sites en attente d’analyse.` : ''}</p><a class="btn contour petit" href="/recherches">${icone('activite', 14)}Voir l’avancement</a></div>`
         : ''
     }
+    <section class="stats">
+      ${stat('nouveau', 'Prêts à contacter')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}${stat('client', 'Clients')}
+    </section>
+    <form class="outils" method="get" action="/">
+      <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles}</select>
+      <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
+      <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
+      <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…">
+      <button type="submit" class="btn contour">${icone('recherches')}Chercher</button>
+    </form>
     <nav class="onglets">${onglets}</nav>
     ${
       exportable
-        ? `<form class="export" method="post" action="/export">${champsCaches}
-            <p>${nombre} prospects prêts. L’export ne prend que les adresses génériques, sans les désinscrits.</p>
-            <label><input type="checkbox" name="marquer" value="1" checked> Les passer en « En campagne »</label>
-            <button type="submit">Exporter pour Smartlead</button>
+        ? `<form class="alerte succes" method="post" action="/export">${champsCaches}
+            <p><strong>${nombre} prospects prêts.</strong> L’export ne prend que les adresses génériques, sans les désinscrits.</p>
+            <label class="case"><input type="checkbox" name="marquer" value="1" checked><span>Les passer en « En campagne »</span></label>
+            <button type="submit" class="btn">${icone('telecharger')}Exporter pour Smartlead</button>
           </form>`
         : ''
     }
+    <div class="carte">
     ${
       prospects.length
-        ? `<table><thead><tr><th>Établissement</th><th>Commune</th><th>Statut</th><th>Constat ou raison</th><th>Email</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table>`
-        : '<p class="vide">Aucun prospect ici. Lance une <a href="/recherches">nouvelle recherche</a>.</p>'
+        ? `<div class="tableau"><table><thead><tr><th>Établissement</th><th>Statut</th><th>Constat ou raison</th><th>Email</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
+        : '<div class="vide"><strong>Aucun prospect ici</strong>Lance une <a href="/recherches">nouvelle recherche</a> pour remplir la base.</div>'
     }
-    ${pagination}`,
+    ${pagination}
+    </div>`,
   );
 }
 
@@ -208,42 +218,57 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
   if (!p) return new Response('Prospect introuvable', { status: 404 });
   const signaux = Object.entries(JSON.parse(p.signaux || '{}') as Record<string, unknown>)
     .filter(([, valeur]) => valeur)
-    .map(([cle, valeur]) => `<li>${echapper(cle)}${typeof valeur === 'number' ? ` (${valeur})` : ''}</li>`)
+    .map(([cle, valeur]) => `<li>${echapper(cle)}${typeof valeur === 'number' ? ` ${valeur}` : ''}</li>`)
     .join('');
   const boutons = Object.entries(STATUTS)
     .map(([statut, libelle]) => `<button type="submit" name="statut" value="${statut}" class="${p.statut === statut ? 'actif' : ''}">${libelle}</button>`)
     .join('');
   const ligne = (libelle: string, valeur: string) => (valeur ? `<dt>${libelle}</dt><dd>${valeur}</dd>` : '');
+  const lienExterne = (href: string, texte: string) =>
+    `<a href="${echapper(href)}" target="_blank" rel="noreferrer" class="avec-icone">${echapper(texte)}${icone('externe', 12)}</a>`;
 
   return page(
     p.nom,
-    `<p><a href="/?cible=${encodeURIComponent(p.cible)}">← Prospects</a></p>
-    <header class="entete"><h1>${echapper(p.nom)}</h1>${badge(p.statut)}</header>
-    ${enregistre ? '<p class="succes">Enregistré.</p>' : ''}
-    <div class="fiche">
-      <dl>
-        ${ligne('Cible', echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible))}
-        ${ligne('Catégorie Google', echapper(p.categorie))}
-        ${ligne('Adresse', echapper(p.adresse || p.ville))}
-        ${ligne('Téléphone', p.telephone ? `<a href="tel:${echapper(p.telephone)}">${echapper(p.telephone)}</a>` : '')}
-        ${ligne('Email', p.email ? `${echapper(p.email)} <span class="discret">(${echapper(p.email_statut)})</span>` : '')}
-        ${ligne('Site', p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer">${echapper(p.site)}</a>` : 'aucun')}
-        ${ligne('Fiche Google', p.fiche_google ? `<a href="${echapper(p.fiche_google)}" target="_blank" rel="noreferrer">ouvrir</a>${p.note_google ? ` · ${p.note_google} ★ (${p.avis_google ?? 0} avis)` : ''}` : '')}
-        ${ligne('Recherche', echapper(p.recherche))}
-        ${ligne('Constat', echapper(p.constat))}
-        ${ligne('Raison', echapper(p.raison))}
-        ${ligne('Signaux', signaux ? `<ul class="signaux">${signaux}</ul>` : '')}
-        ${ligne('Ajouté le', date(p.cree_le))}
-        ${ligne('Vu le', date(p.vu_le))}
-        ${ligne('Statut depuis le', date(p.statut_le))}
-        ${ligne('Contacté le', date(p.contacte_le))}
-      </dl>
-      <form method="post" action="/p/${encodeURIComponent(p.id)}" class="actions">
-        <h2>Statut</h2>
-        <div class="statuts">${boutons}</div>
-        <h2>Note</h2>
-        <textarea name="note" rows="6" placeholder="Appel, réponse, idée de maquette…">${echapper(p.note)}</textarea>
-        <button type="submit" name="statut" value="${echapper(p.statut)}" class="principal">Enregistrer la note</button>
+    `<a class="retour" href="/?cible=${encodeURIComponent(p.cible)}">${icone('retour')}Prospects</a>
+    <header class="page-entete">
+      <div><h1>${echapper(p.nom)}</h1><p class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)} · ${echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible)}</p></div>
+      ${badge(p.statut)}
+    </header>
+    ${enregistre ? `<div class="alerte succes"><p>Enregistré.</p></div>` : ''}
+    <div class="grille deux-colonnes">
+      <div class="grille">
+        ${
+          p.constat || p.raison
+            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">${p.constat ? 'Constat pour l’email' : 'À regarder'}</h2><p class="carte-description">${p.constat ? 'La phrase qui suit « j’ai remarqué que » dans l’email 1.' : 'Pourquoi cette fiche n’est pas prête.'}</p></div></div>
+                <div class="carte-contenu"><p class="constat">${echapper(p.constat || p.raison)}</p></div></section>`
+            : ''
+        }
+        <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Coordonnées</h2></div>
+          <div class="carte-contenu"><dl>
+            ${ligne('Email', p.email ? `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span> <span class="discret">${echapper(p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Téléphone', p.telephone ? `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>` : '')}
+            ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\//, '')) : '<span class="discret">aucun</span>')}
+            ${ligne('Fiche Google', p.fiche_google ? `${lienExterne(p.fiche_google, 'Ouvrir')}${p.note_google ? ` <span class="discret">· ${p.note_google} ★ (${p.avis_google ?? 0} avis)</span>` : ''}` : '')}
+            ${ligne('Catégorie', echapper(p.categorie))}
+            ${ligne('Recherche', echapper(p.recherche))}
+          </dl></div></section>
+        <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Analyse du site</h2></div>
+          <div class="carte-contenu"><dl>
+            ${ligne('Signaux', signaux ? `<ul class="puces">${signaux}</ul>` : '<span class="discret">aucun</span>')}
+            ${ligne('Ajouté le', date(p.cree_le))}
+            ${ligne('Vu le', date(p.vu_le))}
+            ${ligne('Statut depuis le', date(p.statut_le))}
+            ${ligne('Contacté le', date(p.contacte_le))}
+          </dl></div></section>
+      </div>
+      <form method="post" action="/p/${encodeURIComponent(p.id)}" class="carte">
+        <div class="carte-entete"><div><h2 class="carte-titre">Suivi</h2><p class="carte-description">Un clic change le statut.</p></div></div>
+        <div class="carte-contenu formulaire">
+          <div class="statuts">${boutons}</div>
+          <div class="champ"><label for="note">Note</label>
+            <textarea id="note" name="note" rows="7" placeholder="Appel, réponse, idée de maquette…">${echapper(p.note)}</textarea></div>
+          <div><button type="submit" name="statut" value="${echapper(p.statut)}" class="btn">Enregistrer la note</button></div>
+        </div>
       </form>
     </div>`,
   );
