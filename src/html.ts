@@ -25,6 +25,17 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
 a { color: var(--accent); }
 h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 16px; }
 .bouton { font-size: 14px; font-weight: 500; text-decoration: none; background: var(--accent); color: var(--accent-texte); border-radius: 6px; padding: 6px 12px; }
+.activite { background: var(--surface); border: 1px solid var(--ligne); border-radius: 8px; padding: 4px 16px 12px; margin-bottom: 24px; }
+.activite p { margin: 8px 0; }
+.erreur { color: #b3261e; }
+@media (prefers-color-scheme: dark) { .erreur { color: #f2b8b5; } }
+.journal { list-style: none; margin: 8px 0 0; padding: 0; max-height: 320px; overflow-y: auto; font-size: 13px; border-top: 1px solid var(--ligne); }
+.journal li { padding: 4px 0; border-bottom: 1px solid var(--ligne); }
+.journal time { color: var(--discret); font-variant-numeric: tabular-nums; margin-right: 8px; }
+.journal-succes { color: var(--accent); }
+.journal-erreur { color: #b3261e; }
+@media (prefers-color-scheme: dark) { .journal-erreur { color: #f2b8b5; } }
+progress { vertical-align: middle; width: 100px; accent-color: var(--accent); }
 .recherche { display: grid; gap: 12px; max-width: 560px; }
 .recherche label { display: grid; gap: 4px; font-weight: 500; }
 .recherche input, .recherche select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--ligne); border-radius: 6px; padding: 6px 10px; }

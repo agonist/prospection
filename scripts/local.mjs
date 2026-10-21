@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Lance l'admin sur http://localhost:8787 et déclenche la tâche planifiée toutes
-// les minutes, comme le ferait Cloudflare une fois en ligne.
+// Lance l'admin sur http://localhost:8787 et déclenche la tâche planifiée
+// régulièrement, comme le ferait Cloudflare une fois en ligne.
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,13 +19,33 @@ if (!cle) {
 
 execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local'], { cwd: racine, stdio: ['ignore', 'ignore', 'inherit'] });
 
-const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--test-scheduled'], { cwd: racine, stdio: ['ignore', 'ignore', 'inherit'] });
+const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--test-scheduled'], { cwd: racine, stdio: ['ignore', 'pipe', 'inherit'] });
+
+// N'affiche que le journal de la tâche, pas le bruit de wrangler.
+let reste = '';
+worker.stdout.on('data', (morceau) => {
+  const lignes = (reste + morceau.toString()).split('\n');
+  reste = lignes.pop();
+  for (const ligne of lignes) {
+    const propre = ligne.replace(/\x1b\[[0-9;]*m/g, '');
+    const indice = propre.indexOf('[prospection] ');
+    if (indice >= 0) console.log(`${new Date().toLocaleTimeString('fr-FR')}  ${propre.slice(indice + 14)}`);
+  }
+});
+worker.on('exit', (code) => {
+  if (arret) return;
+  console.error(`Le serveur local s'est arrêté (code ${code}).`);
+  process.exit(1);
+});
+let arret = false;
 process.on('SIGINT', () => {
+  arret = true;
   worker.kill('SIGINT');
   process.exit(0);
 });
 
-// Attend que le Worker réponde, puis déclenche la tâche toutes les minutes.
+// Attend que le Worker réponde, puis déclenche la tâche toutes les 10 secondes :
+// en local, pas de limite Cloudflare, autant aller vite.
 async function passage() {
   await fetch(`http://localhost:${PORT}/__scheduled?cron=*+*+*+*+*`).catch(() => {});
 }
@@ -37,6 +57,7 @@ const attente = setInterval(async () => {
   }
   clearInterval(attente);
   console.log(`Admin prête sur http://localhost:${PORT} (Ctrl+C pour arrêter).`);
+  console.log('Le journal de la tâche s’affiche ici, et sur la page Recherches de l’admin.');
   passage();
-  setInterval(passage, 60_000);
+  setInterval(passage, 10_000);
 }, 2_000);

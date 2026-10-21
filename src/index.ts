@@ -105,7 +105,7 @@ async function liste(url: URL, env: Env) {
   const { where, valeurs } = clauses(filtres);
   const sansStatut = clauses(filtres, true);
 
-  const [lignes, total, parStatut, villes, aPurger] = await env.DB.batch([
+  const [lignes, total, parStatut, villes, aPurger, travail] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM prospects ${where} ORDER BY vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${where}`).bind(...valeurs),
     env.DB.prepare(`SELECT statut, COUNT(*) AS n FROM prospects ${sansStatut.where} GROUP BY statut`).bind(...sansStatut.valeurs),
@@ -113,7 +113,11 @@ async function liste(url: URL, env: Env) {
     env.DB.prepare(
       `SELECT COUNT(*) AS n FROM prospects WHERE statut IN (${PURGEABLES.map(() => '?').join(', ')}) AND statut_le < ? AND vu_le < ?`,
     ).bind(...PURGEABLES, new Date(Date.now() - TROIS_ANS_MS).toISOString(), new Date(Date.now() - TROIS_ANS_MS).toISOString()),
+    env.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM recherches WHERE statut IN ('en_cours', 'import')) AS recherches, (SELECT COUNT(*) FROM prospects WHERE statut = 'a_analyser') AS analyses",
+    ),
   ]);
+  const enCours = travail.results[0] as { recherches: number; analyses: number };
 
   const prospects = lignes.results as Prospect[];
   const nombre = (total.results[0] as { n: number }).n;
@@ -175,6 +179,11 @@ async function liste(url: URL, env: Env) {
       </form>
     </header>
     ${purge ? `<form class="alerte" method="post" action="/purger" onsubmit="return confirm('Effacer définitivement ${purge} prospects ?')"><p>${purge} prospects n’ont pas bougé depuis 3 ans. La CNIL recommande de les effacer.</p><button type="submit">Effacer</button></form>` : ''}
+    ${
+      enCours.recherches || enCours.analyses
+        ? `<p class="export">${enCours.recherches ? `${enCours.recherches} recherche${enCours.recherches > 1 ? 's' : ''} en cours. ` : ''}${enCours.analyses ? `${enCours.analyses} sites en attente d’analyse. ` : ''}<a href="/recherches">Voir l’avancement</a></p>`
+        : ''
+    }
     <nav class="onglets">${onglets}</nav>
     ${
       exportable

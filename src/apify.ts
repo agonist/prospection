@@ -46,3 +46,9 @@ export async function fiches(env: Env, datasetId: string, decalage: number, nomb
   );
   return { fiches: data, total: Number(reponse.headers.get('x-apify-pagination-total') ?? data.length) };
 }
+
+// Nombre de fiches déjà trouvées, même pendant l'extraction.
+export async function compte(env: Env, datasetId: string) {
+  const { data } = await appeler<{ data: { itemCount: number } }>(env, `/datasets/${datasetId}`);
+  return data.data.itemCount ?? 0;
+}

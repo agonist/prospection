@@ -32,6 +32,9 @@ function demarrerFauxApify(fiches) {
       appels.etat += 1;
       return json({ data: { status: appels.etat === 1 ? 'RUNNING' : 'SUCCEEDED' } });
     }
+    if (url.pathname === '/v2/datasets/ds1') {
+      return json({ data: { itemCount: appels.etat <= 1 ? 0 : fiches.length } });
+    }
     if (url.pathname === '/v2/datasets/ds1/items') {
       const debut = Number(url.searchParams.get('offset'));
       const fin = debut + Number(url.searchParams.get('limit'));
@@ -102,6 +105,12 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     await passage(); // terminé : import
     assert.match(await (await fetch(`${admin}/recherches`)).text(), /Terminée/);
     await passage(); // analyse des sites
+
+    const suivi = await (await fetch(`${admin}/recherches`)).text();
+    assert.match(suivi, /Dernier passage de la tâche il y a \d+ s/);
+    assert.match(suivi, /extraction Apify en cours, 0 fiches trouvées/);
+    assert.match(suivi, /3 \/ 3 fiches importées/);
+    assert.match(suivi, /Domaine B : prêt à contacter/);
 
     const liste = await (await fetch(`${admin}/?cible=vin`)).text();
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];

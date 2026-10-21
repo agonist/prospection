@@ -6,13 +6,39 @@ import { CIBLES } from '../scripts/cibles.mjs';
 import { STATUTS_AUTOMATIQUES, identifiant, statutApresAnalyse } from '../scripts/base.mjs';
 import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
-import { etat, fiches } from './apify';
+import { compte, etat, fiches } from './apify';
 
 const IMPORT_PAR_PASSAGE = 25;
 const ANALYSES_PAR_PASSAGE = 8;
 const ECHECS = ['FAILED', 'ABORTED', 'TIMED-OUT', 'TIMED_OUT'];
 
-type Recherche = { id: number; cible: string; run_id: string; dataset_id: string; statut: string; importees: number };
+type Recherche = {
+  id: number;
+  cible: string;
+  run_id: string;
+  dataset_id: string;
+  statut: string;
+  importees: number;
+  apify_statut: string;
+  apify_fiches: number;
+};
+
+const ETATS_APIFY: Record<string, string> = {
+  READY: 'en file d’attente',
+  RUNNING: 'en cours',
+  SUCCEEDED: 'terminée',
+  FAILED: 'échouée',
+  ABORTED: 'annulée',
+  'TIMED-OUT': 'trop longue, arrêtée',
+};
+
+const JOURNAL = 'INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)';
+
+// Écrit dans le journal de l'admin et dans le terminal (`pnpm local`, `wrangler tail`).
+function noter(env: Env, niveau: 'info' | 'succes' | 'erreur', message: string, rechercheId: number | null = null) {
+  console.log(`[prospection] ${niveau === 'erreur' ? 'ERREUR ' : ''}${message}`);
+  return env.DB.prepare(JOURNAL).bind(new Date().toISOString(), niveau, message, rechercheId);
+}
 
 const AUTOMATIQUES = STATUTS_AUTOMATIQUES.map((statut) => `'${statut}'`).join(', ');
 
@@ -59,13 +85,29 @@ export function ligneImport(fiche: Record<string, unknown>, nomCible: string, ma
 // Renvoie true si la recherche a consommé ce passage (un lot importé).
 async function avancer(env: Env, recherche: Recherche, maintenant: string): Promise<boolean> {
   if (recherche.statut === 'en_cours') {
-    const statut = await etat(env, recherche.run_id);
+    const [statut, trouvees] = await Promise.all([etat(env, recherche.run_id), compte(env, recherche.dataset_id)]);
+    const notes = [];
+    if (statut !== recherche.apify_statut || trouvees !== recherche.apify_fiches) {
+      notes.push(noter(env, 'info', `Recherche n°${recherche.id} : extraction Apify ${ETATS_APIFY[statut] ?? statut}, ${trouvees} fiches trouvées.`, recherche.id));
+    }
     if (ECHECS.includes(statut)) {
-      await env.DB.prepare("UPDATE recherches SET statut = 'echec', erreur = ?, fini_le = ? WHERE id = ?")
-        .bind(`Apify : ${statut}`, maintenant, recherche.id)
-        .run();
+      await env.DB.batch([
+        ...notes,
+        noter(env, 'erreur', `Recherche n°${recherche.id} : l’extraction Apify a échoué (${statut}). Voir console.apify.com → Runs.`, recherche.id),
+        env.DB.prepare("UPDATE recherches SET statut = 'echec', apify_statut = ?, apify_fiches = ?, erreur = ?, fini_le = ? WHERE id = ?").bind(
+          statut,
+          trouvees,
+          `Apify : ${statut}`,
+          maintenant,
+          recherche.id,
+        ),
+      ]);
       return false;
     }
+    await env.DB.batch([
+      ...notes,
+      env.DB.prepare("UPDATE recherches SET apify_statut = ?, apify_fiches = ?, erreur = '' WHERE id = ?").bind(statut, trouvees, recherche.id),
+    ]);
     if (statut !== 'SUCCEEDED') return false;
   }
 
@@ -73,6 +115,7 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
   const lignes = lot.fiches.map((fiche) => ligneImport(fiche, recherche.cible, maintenant)).filter((ligne) => ligne !== null);
   const importees = recherche.importees + lot.fiches.length;
   const fini = lot.fiches.length === 0 || importees >= lot.total;
+  const horsCible = lignes.filter((ligne) => ligne[13] === 'hors_cible').length;
   await env.DB.batch([
     ...lignes.map((ligne) => env.DB.prepare(UPSERT).bind(...ligne)),
     env.DB.prepare('UPDATE recherches SET statut = ?, fiches = ?, importees = ?, fini_le = ? WHERE id = ?').bind(
@@ -82,14 +125,20 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
       fini ? maintenant : null,
       recherche.id,
     ),
+    noter(
+      env,
+      fini ? 'succes' : 'info',
+      `Recherche n°${recherche.id} : ${importees} / ${lot.total} fiches importées${horsCible ? ` (${horsCible} hors cible dans ce lot)` : ''}.${fini ? ' Les sites vont être analysés.' : ''}`,
+      recherche.id,
+    ),
   ]);
   return true;
 }
 
-type AAnalyser = { id: string; cible: string; site: string; emails_fiche: string };
+type AAnalyser = { id: string; cible: string; nom: string; site: string; emails_fiche: string };
 
 async function analyserLot(env: Env, maintenant: string) {
-  const { results } = await env.DB.prepare("SELECT id, cible, site, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
+  const { results } = await env.DB.prepare("SELECT id, cible, nom, site, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(ANALYSES_PAR_PASSAGE)
     .all<AAnalyser>();
   if (!results.length) return;
@@ -97,37 +146,54 @@ async function analyserLot(env: Env, maintenant: string) {
   const analyses = await Promise.all(
     results.map((p) => analyser({ site: p.site, emails: JSON.parse(p.emails_fiche || '[]') }, CIBLES[p.cible as keyof typeof CIBLES])),
   );
+  const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', plus_tard: 'plus tard' };
   await env.DB.batch(
-    results.map((p, index) => {
+    results.flatMap((p, index) => {
       const analyse = analyses[index];
       const { statut, raison } = statutApresAnalyse(analyse);
-      return env.DB.prepare(
-        `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?
-          WHERE id = ? AND statut = 'a_analyser'`,
-      ).bind(
-        analyse.email,
-        analyse.statut,
-        analyse.constat?.cle ?? '',
-        analyse.constat?.phrase ?? '',
-        JSON.stringify(analyse.signaux),
-        statut,
-        raison,
-        maintenant,
-        p.id,
-      );
+      return [
+        env.DB.prepare(
+          `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?
+            WHERE id = ? AND statut = 'a_analyser'`,
+        ).bind(
+          analyse.email,
+          analyse.statut,
+          analyse.constat?.cle ?? '',
+          analyse.constat?.phrase ?? '',
+          JSON.stringify(analyse.signaux),
+          statut,
+          raison,
+          maintenant,
+          p.id,
+        ),
+        noter(env, statut === 'nouveau' ? 'succes' : 'info', `${p.nom} : ${LIBELLES[statut] ?? statut}${statut === 'nouveau' ? ` (${analyse.constat?.phrase})` : ` (${raison})`}.`),
+      ];
     }),
   );
 }
 
 export async function tache(env: Env) {
   const maintenant = new Date().toISOString();
+  const semaine = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO etat (cle, valeur) VALUES ('dernier_passage', ?) ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur").bind(maintenant),
+    env.DB.prepare('DELETE FROM journal WHERE le < ?').bind(semaine),
+  ]);
+
   const recherche = await env.DB.prepare("SELECT * FROM recherches WHERE statut IN ('import', 'en_cours') ORDER BY statut = 'en_cours', id LIMIT 1").first<Recherche>();
   if (recherche) {
     try {
       if (await avancer(env, recherche, maintenant)) return;
     } catch (erreur) {
-      await env.DB.prepare('UPDATE recherches SET erreur = ? WHERE id = ?').bind(String(erreur).slice(0, 500), recherche.id).run();
+      await env.DB.batch([
+        env.DB.prepare('UPDATE recherches SET erreur = ? WHERE id = ?').bind(String(erreur).slice(0, 500), recherche.id),
+        noter(env, 'erreur', `Recherche n°${recherche.id} : ${String(erreur).slice(0, 300)}`, recherche.id),
+      ]);
     }
   }
-  await analyserLot(env, maintenant);
+  try {
+    await analyserLot(env, maintenant);
+  } catch (erreur) {
+    await noter(env, 'erreur', `Analyse des sites : ${String(erreur).slice(0, 300)}`).run();
+  }
 }

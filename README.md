@@ -5,7 +5,7 @@ La base de prospects de C'est bien beau. Chaque établissement trouvé sur Googl
 Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé par Cloudflare Access) :
 
 1. **Nouvelle recherche** : tu choisis une cible, un métier et des communes. L'admin lance l'extraction Google Maps sur Apify.
-2. Toutes les minutes, une tâche planifiée récupère les fiches, les enregistre, puis visite chaque site pour trouver une adresse générique et un constat (environ 8 sites par minute).
+2. Une tâche planifiée (toutes les minutes en ligne, toutes les 10 secondes avec `pnpm local`) récupère les fiches, les enregistre, puis visite chaque site pour trouver une adresse générique et un constat (environ 8 sites par minute).
 3. Tu relis les prospects prêts, puis tu exportes le CSV pour Smartlead.
 
 ## Les statuts
@@ -33,6 +33,8 @@ pnpm local
 ```
 
 Au premier lancement, `pnpm local` crée le fichier `.dev.vars` et demande la clé API Apify (sur [console.apify.com](https://console.apify.com), **Settings → API & Integrations**). Colle-la après `APIFY_TOKEN=`, puis relance `pnpm local`. L'admin s'ouvre sur http://localhost:8787, et la tâche tourne toutes les minutes tant que la commande reste ouverte. La base locale est gardée dans `.wrangler/` entre deux lancements.
+
+Pour suivre ce qui se passe : le terminal affiche chaque étape (extraction Apify, import, résultat de l'analyse de chaque site), et la page **Recherches** de l'admin montre l'activité, l'heure du dernier passage de la tâche, la progression et les erreurs. Elle se rafraîchit toute seule tant qu'il reste du travail.
 
 ## Mise en ligne (une seule fois)
 
