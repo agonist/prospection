@@ -38,6 +38,7 @@ h1 { font-size: 24px; margin: 0; display: flex; align-items: center; gap: 16px; 
 progress { vertical-align: middle; width: 100px; accent-color: var(--accent); }
 .recherche { display: grid; gap: 12px; max-width: 560px; }
 .recherche label { display: grid; gap: 4px; font-weight: 500; }
+.recherche label.case { display: flex; align-items: center; gap: 8px; font-weight: 400; }
 .recherche input, .recherche select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--ligne); border-radius: 6px; padding: 6px 10px; }
 .recherche p { margin: 0; }
 .recherche button { justify-self: start; }

@@ -59,7 +59,7 @@ Sur le plan Workers gratuit, chaque passage de la tâche est limité à 10 ms de
 
 Dans l'admin, **Nouvelle recherche** : la cible préremplit le métier et une liste de communes (dans `scripts/cibles.mjs`). Chaque ligne devient une recherche Google Maps « métier commune », dont le texte est réutilisé tel quel dans l'email (colonne `recherche`). La page des recherches montre l'avancement.
 
-L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis, les photos et l'extraction payante des contacts sont désactivés : l'analyse cherche les emails elle-même.
+L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis et les photos sont désactivés. La case « Extraire les emails avec Apify » (cochée par défaut) active l'option payante qui récupère les emails des sites pendant l'extraction ; l'analyse repasse de toute façon sur chaque site pour le constat et pour les emails qu'Apify aurait manqués.
 
 ## Envoyer dans Smartlead
 

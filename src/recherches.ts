@@ -100,7 +100,8 @@ export async function pageRecherches(url: URL, env: Env) {
       <label>Fiches maximum par commune
         <input type="number" name="max" value="30" min="1" max="200" required>
       </label>
-      <p class="discret">Chaque ligne devient une recherche Google Maps « métier commune ». L’extraction prend quelques minutes, puis chaque site est analysé automatiquement, environ 8 par minute.</p>
+      <label class="case"><input type="checkbox" name="contacts" value="1" checked> Extraire les emails avec Apify (option payante « contacts enrichment », quelques dollars pour 1 000 fiches)</label>
+      <p class="discret">Chaque ligne devient une recherche Google Maps « métier commune ». L’extraction prend quelques minutes, puis chaque site est analysé automatiquement.</p>
       <button type="submit">Lancer la recherche</button>
     </form>
     <h2>Recherches lancées</h2>
@@ -122,13 +123,14 @@ export async function lancerRecherche(requete: Request, env: Env) {
 
   const termes = [...new Set(communes.map((commune) => `${metier} ${commune}`))];
   try {
-    const { runId, datasetId } = await lancer(env, termes, max);
+    const contacts = donnees.get('contacts') === '1';
+    const { runId, datasetId } = await lancer(env, termes, max, contacts);
     const maintenant = new Date().toISOString();
     const { meta } = await env.DB.prepare('INSERT INTO recherches (cible, termes, run_id, dataset_id, cree_le) VALUES (?, ?, ?, ?, ?)')
       .bind(nomCible, JSON.stringify(termes), runId, datasetId, maintenant)
       .run();
     await env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)')
-      .bind(maintenant, 'info', `Recherche n°${meta.last_row_id} lancée sur Apify : ${termes.length} recherches, ${max} fiches maximum chacune.`, meta.last_row_id)
+      .bind(maintenant, 'info', `Recherche n°${meta.last_row_id} lancée sur Apify : ${termes.length} recherches, ${max} fiches maximum chacune${contacts ? ', avec extraction des emails' : ''}.`, meta.last_row_id)
       .run();
   } catch (erreur) {
     return page('Erreur', `<p><a href="/recherches">← Recherches</a></p><p class="alerte">${echapper(String(erreur))}</p>`);

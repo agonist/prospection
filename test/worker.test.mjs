@@ -91,13 +91,14 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
 
     const lancement = await fetch(`${admin}/recherches`, {
       method: 'POST',
-      body: new URLSearchParams({ cible: 'vin', metier: 'domaine viticole', communes: 'Barr\nAndlau\n', max: '20' }),
+      body: new URLSearchParams({ cible: 'vin', metier: 'domaine viticole', communes: 'Barr\nAndlau\n', max: '20', contacts: '1' }),
       redirect: 'manual',
     });
     assert.equal(lancement.status, 303);
     assert.equal(apifyFinal.appels.runs[0].auth, 'Bearer jeton-test');
     assert.deepEqual(apifyFinal.appels.runs[0].entree.searchStringsArray, ['domaine viticole Barr', 'domaine viticole Andlau']);
     assert.equal(apifyFinal.appels.runs[0].entree.maxCrawledPlacesPerSearch, 20);
+    assert.equal(apifyFinal.appels.runs[0].entree.scrapeContacts, true);
 
     const passage = () => fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
     await passage(); // Apify encore en cours

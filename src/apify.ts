@@ -16,7 +16,7 @@ async function appeler<T>(env: Env, chemin: string, init: RequestInit = {}): Pro
   return { data: (await reponse.json()) as T, reponse };
 }
 
-export async function lancer(env: Env, termes: string[], parRecherche: number) {
+export async function lancer(env: Env, termes: string[], parRecherche: number, contacts: boolean) {
   const { data } = await appeler<{ data: { id: string; defaultDatasetId: string } }>(env, `/acts/${ACTEUR}/runs`, {
     method: 'POST',
     body: JSON.stringify({
@@ -24,10 +24,11 @@ export async function lancer(env: Env, termes: string[], parRecherche: number) {
       maxCrawledPlacesPerSearch: parRecherche,
       language: 'fr',
       countryCode: 'fr',
-      // Les emails sont cherchés par notre analyse : pas besoin des options payantes.
       maxReviews: 0,
       maxImages: 0,
-      scrapeContacts: false,
+      // Option payante d'Apify : visite les sites et renvoie les emails dans `emails`.
+      // Notre analyse repasse de toute façon sur le site pour le constat.
+      scrapeContacts: contacts,
     }),
   });
   return { runId: data.data.id, datasetId: data.data.defaultDatasetId };
