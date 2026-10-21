@@ -185,11 +185,15 @@ export function natureEmail(email, nom = '', site = '') {
   return 'nominative';
 }
 
+const ADRESSE = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+
 // Garde la meilleure adresse de l'entreprise, de préférence sur le domaine du site.
 // Une adresse générique ou au nom de l'entreprise peut partir dans Smartlead ;
 // une adresse nominative s'écrit à la main.
 export function choisirEmail(emails, site, nom = '') {
-  const uniques = [...new Set(emails.map((email) => email.toLowerCase()))];
+  // Apify ou une page peuvent renvoyer autre chose qu'une adresse (« mailto: » vide, texte…).
+  const valides = emails.filter((email) => typeof email === 'string' && ADRESSE.test(email.trim()));
+  const uniques = [...new Set(valides.map((email) => email.trim().toLowerCase()))];
   const host = hote(site);
   const entreprise = motsEntreprise(nom, site);
   const avecNature = uniques.map((email) => ({ email, nature: natureEmail(email, nom, site), domaine: email.split('@')[1] }));

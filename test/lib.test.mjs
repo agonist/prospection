@@ -39,6 +39,11 @@ test('range les fiches sans email ou nominatives dans des files à traiter', () 
   assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'entreprise' }).statut, 'nouveau');
 });
 
+test('ignore ce qui n’est pas une adresse', () => {
+  assert.deepEqual(choisirEmail(['', 'mailto:', 'pas une adresse', null, 'contact@domaine.fr'], 'https://domaine.fr', 'Domaine'), { email: 'contact@domaine.fr', statut: 'generique' });
+  assert.deepEqual(choisirEmail(['mailto:'], '', 'Domaine'), { email: '', statut: 'absente' });
+});
+
 test('extrait les emails sans prendre les images ni les adresses techniques', () => {
   const html = '<a href="mailto:Contact@Domaine.fr?subject=x">x</a> info [at] domaine.fr logo@2x.png abc@sentry.io';
   assert.deepEqual(extraireEmails(html).sort(), ['contact@domaine.fr', 'info@domaine.fr']);

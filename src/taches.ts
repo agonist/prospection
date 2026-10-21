@@ -152,12 +152,28 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
   if (!results.length) return;
 
   const analyses = await Promise.all(
-    results.map((p) => analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] })),
+    // Une fiche qui fait planter l'analyse ne doit pas bloquer les autres.
+    results.map((p) =>
+      Promise.resolve()
+        .then(() => analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] }))
+        .catch((erreur: unknown) => ({ erreur: String(erreur).slice(0, 200) })),
+    ),
   );
   const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', a_ecrire: 'à écrire à la main', a_appeler: 'à appeler', plus_tard: 'plus tard' };
   await env.DB.batch(
     results.flatMap((p, index) => {
-      const analyse = analyses[index];
+      const resultat = analyses[index];
+      if ('erreur' in resultat) {
+        return [
+          env.DB.prepare("UPDATE prospects SET statut = 'a_verifier', raison = ?, statut_le = ? WHERE id = ? AND statut = 'a_analyser'").bind(
+            `erreur d’analyse : ${resultat.erreur}`,
+            maintenant,
+            p.id,
+          ),
+          noter(env, 'erreur', `${p.nom} : erreur d’analyse (${resultat.erreur}), passé en « à vérifier ».`),
+        ];
+      }
+      const analyse = resultat;
       const { statut, raison } = statutApresAnalyse(analyse, p.telephone);
       return [
         env.DB.prepare(

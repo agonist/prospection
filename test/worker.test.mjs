@@ -72,7 +72,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     { placeId: 'B', title: 'Domaine B', city: 'Andlau', emails: ['contact@domaine-b.fr'] },
     { placeId: 'C', title: 'Cave coopérative de Barr', city: 'Barr' },
     { placeId: 'D', title: 'Domaine D', city: 'Barr', emails: ['claire.martin@gmail.com'] },
-    { placeId: 'E', title: 'Domaine E', city: 'Andlau', phone: '03 89 00 00 00' },
+    { placeId: 'E', title: 'Domaine E', city: 'Andlau', phone: '03 89 00 00 00', emails: ['mailto:'] },
   ];
   const apifyFinal = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${apifyFinal.port}/site-a/`;
