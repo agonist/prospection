@@ -1,0 +1,3 @@
+ACCESS_DESACTIVE=1
+# Clé API Apify : Settings → API & Integrations sur console.apify.com
+APIFY_TOKEN=

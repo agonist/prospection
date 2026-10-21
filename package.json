@@ -1,0 +1,23 @@
+{
+  "name": "prospection",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "local": "node scripts/local.mjs",
+    "dev": "wrangler dev --test-scheduled",
+    "publier": "wrangler deploy",
+    "db:migrer": "wrangler d1 migrations apply prospection --remote",
+    "db:migrer:local": "wrangler d1 migrations apply prospection --local",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "test": "node --test test/lib.test.mjs",
+    "test:worker": "node --test test/worker.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.151.3"
+  }
+}
