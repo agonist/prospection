@@ -6,6 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "local": "node scripts/local.mjs",
     "dev": "wrangler dev --test-scheduled",
     "publier": "wrangler deploy",
     "db:migrer": "wrangler d1 migrations apply prospection --remote",

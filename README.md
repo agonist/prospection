@@ -22,7 +22,19 @@ Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé pa
 
 Une nouvelle recherche met à jour les données d'une fiche (site, téléphone…) et réanalyse son site si son statut est automatique. Elle ne touche jamais un statut posé à la main ni la note.
 
-## Mise en place (une seule fois)
+## En local, sur ton ordinateur
+
+Il faut Node 22 et pnpm.
+
+```sh
+git clone https://github.com/agonist/prospection && cd prospection
+pnpm install
+pnpm local
+```
+
+Au premier lancement, `pnpm local` crée le fichier `.dev.vars` et demande la clé API Apify (sur [console.apify.com](https://console.apify.com), **Settings → API & Integrations**). Colle-la après `APIFY_TOKEN=`, puis relance `pnpm local`. L'admin s'ouvre sur http://localhost:8787, et la tâche tourne toutes les minutes tant que la commande reste ouverte. La base locale est gardée dans `.wrangler/` entre deux lancements.
+
+## Mise en ligne (une seule fois)
 
 ```sh
 pnpm install
