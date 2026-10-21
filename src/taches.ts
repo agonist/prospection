@@ -143,22 +143,22 @@ async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Ci
   return true;
 }
 
-type AAnalyser = { id: string; cible: string; nom: string; site: string; emails_fiche: string };
+type AAnalyser = { id: string; cible: string; nom: string; site: string; telephone: string; emails_fiche: string };
 
 async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: string) {
-  const { results } = await env.DB.prepare("SELECT id, cible, nom, site, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
+  const { results } = await env.DB.prepare("SELECT id, cible, nom, site, telephone, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
 
   const analyses = await Promise.all(
-    results.map((p) => analyser({ site: p.site, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] })),
+    results.map((p) => analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] })),
   );
-  const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', plus_tard: 'plus tard' };
+  const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', a_ecrire: 'à écrire à la main', a_appeler: 'à appeler', plus_tard: 'plus tard' };
   await env.DB.batch(
     results.flatMap((p, index) => {
       const analyse = analyses[index];
-      const { statut, raison } = statutApresAnalyse(analyse);
+      const { statut, raison } = statutApresAnalyse(analyse, p.telephone);
       return [
         env.DB.prepare(
           `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?

@@ -143,19 +143,74 @@ export function estGenerique(email) {
   return LOCAUX_GENERIQUES.has(local);
 }
 
-// Garde la meilleure adresse générique, de préférence sur le domaine du site.
-export function choisirEmail(emails, site) {
+// Mots de métier : une adresse qui en contient un désigne l'entreprise.
+const MOTS_METIER = /menuis|plomb|electri|couverture|couvreur|charpent|carrel|peintur|peintre|macon|batiment|renov|chauffag|sanitaire|toiture|zinguer|isolation|ebenist|serrur|parquet|platr|facade|jardin|paysag|naturo|sophro|osteo|kinesio|reflexo|hypno|massage|masseu|therap|bienetre|yoga|soin|vignob|viticul|vigneron|domaine|cave|vins?$|^ets$|^etablissement|^sarl|^eurl|^sas$|^scea|^earl|^gaec|^entreprise|^societe|^groupe|^atelier|^cabinet|^maison|^studio|^agence/;
+
+// Prénoms courants : une adresse qui en contient un désigne une personne.
+const PRENOMS = new Set(
+  `jean pierre michel philippe alain nicolas christophe patrick daniel bernard eric laurent frederic stephane david olivier thierry pascal
+  sebastien julien thomas christian jacques francois didier dominique gerard yves vincent fabrice bruno franck serge jerome guillaume
+  antoine alexandre maxime mathieu matthieu romain florian kevin anthony benjamin cedric arnaud lionel ludovic gilles herve marc paul
+  andre rene claude louis luc joel denis remi sylvain emmanuel gregory hugo lucas leo theo nathan quentin adrien damien yannick loic
+  marie nathalie isabelle sylvie catherine francoise martine christine sandrine valerie veronique sophie celine stephanie christelle
+  laurence anne julie aurelie caroline emilie claire camille sarah laura pauline elodie audrey melanie marion lucie chloe manon emma lea
+  helene agnes brigitte monique nicole patricia corinne florence muriel karine virginie delphine severine sabrina vanessa alice clara
+  charlotte juliette amandine jessica marine morgane elise eva louise jeanne anais justine ophelie margaux estelle beatrice odile
+  josiane chantal annie evelyne mireille jacqueline danielle genevieve fabienne myriam carole cecile magali gaelle solene`.split(/\s+/),
+);
+
+function mots(texte) {
+  return String(texte ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+}
+
+// Les mots qui identifient l'entreprise : ceux de son nom et de son domaine.
+function motsEntreprise(nom, site) {
+  const domaine = hote(site).replace(/\.[a-z]+$/, '');
+  return new Set([...mots(nom), ...mots(domaine)].filter((mot) => mot.length >= 4));
+}
+
+// generique (contact@…), entreprise (menuiserie.dupont@…) ou nominative (claire.martin@…).
+export function natureEmail(email, nom = '', site = '') {
+  if (estGenerique(email)) return 'generique';
+  const local = mots(email.split('@')[0]);
+  if (local.some((mot) => PRENOMS.has(mot))) return 'nominative';
+  if (/^[a-z][._-][a-z]+$/.test(email.split('@')[0])) return 'nominative'; // c.martin@
+  const entreprise = motsEntreprise(nom, site);
+  if (local.some((mot) => MOTS_METIER.test(mot) || (mot.length >= 4 && entreprise.has(mot)))) return 'entreprise';
+  return 'nominative';
+}
+
+// Garde la meilleure adresse de l'entreprise, de préférence sur le domaine du site.
+// Une adresse générique ou au nom de l'entreprise peut partir dans Smartlead ;
+// une adresse nominative s'écrit à la main.
+export function choisirEmail(emails, site, nom = '') {
   const uniques = [...new Set(emails.map((email) => email.toLowerCase()))];
   const host = hote(site);
-  const generiques = uniques.filter(estGenerique);
-  const surLeDomaine = generiques.find((email) => host && email.endsWith(`@${host}`));
-  if (surLeDomaine) return { email: surLeDomaine, statut: 'generique' };
-  // Une adresse générique d'un autre domaine peut être celle de l'agence qui a fait le site.
-  const surUnWebmail = generiques.find((email) => WEBMAILS.includes(email.split('@')[1]));
-  if (surUnWebmail) return { email: surUnWebmail, statut: 'generique' };
-  if (generiques.length) return { email: generiques[0], statut: host ? 'autre_domaine' : 'generique' };
-  if (uniques.length) return { email: uniques[0], statut: 'nominative' };
-  return { email: '', statut: 'absente' };
+  const entreprise = motsEntreprise(nom, site);
+  const avecNature = uniques.map((email) => ({ email, nature: natureEmail(email, nom, site), domaine: email.split('@')[1] }));
+  const rang = ({ nature, domaine }) => {
+    const surLeDomaine = host && domaine === host;
+    // Un autre domaine qui reprend le nom de l'entreprise est le sien (domaine-dupont.com, dupont-vins.fr).
+    const domaineAElle = surLeDomaine || mots(domaine.replace(/\.[a-z]+$/, '')).some((mot) => mot.length >= 4 && entreprise.has(mot));
+    const webmail = WEBMAILS.includes(domaine);
+    if (nature === 'nominative') return 9;
+    const base = nature === 'generique' ? 0 : 1;
+    if (surLeDomaine) return base;
+    if (domaineAElle || webmail || !host) return 2 + base;
+    return 6 + base; // peut-être l'agence qui a fait le site
+  };
+  const tries = avecNature.sort((a, b) => rang(a) - rang(b));
+  const meilleure = tries[0];
+  if (!meilleure) return { email: '', statut: 'absente' };
+  const r = rang(meilleure);
+  if (r === 9) return { email: meilleure.email, statut: 'nominative' };
+  if (r >= 6) return { email: meilleure.email, statut: 'autre_domaine' };
+  return { email: meilleure.email, statut: meilleure.nature };
 }
 
 export function liensUtiles(html, base) {

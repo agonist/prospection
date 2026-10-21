@@ -71,6 +71,8 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     { placeId: 'A', title: 'Domaine A', city: 'Barr', categoryName: 'Producteur de vin', searchString: 'domaine viticole Barr' },
     { placeId: 'B', title: 'Domaine B', city: 'Andlau', emails: ['contact@domaine-b.fr'] },
     { placeId: 'C', title: 'Cave coopérative de Barr', city: 'Barr' },
+    { placeId: 'D', title: 'Domaine D', city: 'Barr', emails: ['claire.martin@gmail.com'] },
+    { placeId: 'E', title: 'Domaine E', city: 'Andlau', phone: '03 89 00 00 00' },
   ];
   const apifyFinal = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${apifyFinal.port}/site-a/`;
@@ -110,7 +112,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     const suivi = await (await fetch(`${admin}/recherches`)).text();
     assert.match(suivi, /Dernier passage de la tâche il y a \d+ s/);
     assert.match(suivi, /extraction Apify en cours, 0 fiches trouvées/);
-    assert.match(suivi, /3 \/ 3 fiches importées/);
+    assert.match(suivi, /5 \/ 5 fiches importées/);
     assert.match(suivi, /Domaine B : prêt à contacter/);
 
     const liste = await (await fetch(`${admin}/?cible=vin`)).text();
@@ -118,6 +120,21 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*on ne peut pas commander vos vins[\s\S]*contact@127\.0\.0\.1/);
     assert.match(ligne('Domaine B'), /badge-nouveau[\s\S]*seulement une fiche Google[\s\S]*contact@domaine-b\.fr/);
     assert.match(ligne('Cave coopérative de Barr'), /badge-hors_cible/);
+    // Adresse nominative : à écrire à la main, avec l'email prérempli.
+    assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Domaine%20D[^"]*j&#39;ai%20remarqu%C3%A9%20que%20vous%20n&#39;avez%20pas%20encore%20de%20site/);
+    // Pas d'email mais un téléphone : à appeler.
+    assert.match(ligne('Domaine E'), /badge-a_appeler[\s\S]*href="tel:03 89 00 00 00"/);
+    assert.match(await (await fetch(`${admin}/?statut=a_appeler`)).text(), /pas d’email trouvé<em>1<\/em>|Réanalyser/);
+
+    // « Écrire » passe la fiche en campagne.
+    assert.equal((await fetch(`${admin}/p/D/ecrit`, { method: 'POST' })).status, 204);
+    assert.match(await (await fetch(`${admin}/p/D`)).text(), /badge-en_campagne/);
+
+    // « Réanalyser » renvoie les fiches à appeler en analyse, et elles y retombent.
+    await fetch(`${admin}/reanalyser`, { method: 'POST', body: new URLSearchParams({ statut: 'a_appeler' }), redirect: 'manual' });
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_analyser/);
+    await passage();
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_appeler/);
 
     // La même recherche n'est pas relancée tant qu'on ne force pas.
     const rejouee = await fetch(`${admin}/recherches`, {

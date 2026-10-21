@@ -22,8 +22,10 @@ export async function telecharger(url) {
 }
 
 // Au plus 4 requêtes par prospect : l'accueil et 3 pages contact ou mentions légales.
-export async function analyser({ site, emails = [] }, cible) {
-  const accueil = site && !estPlateforme(site) ? await telecharger(site) : null;
+export async function analyser({ site, emails = [], nom = '' }, cible) {
+  const aTelecharger = site && !estPlateforme(site);
+  // Un site lent ou qui coupe une fois est souvent juste occupé : un second essai.
+  const accueil = aTelecharger ? ((await telecharger(site)) ?? (await telecharger(site))) : null;
   const trouves = [...emails];
   if (accueil) {
     trouves.push(...extraireEmails(accueil.html));
@@ -31,5 +33,5 @@ export async function analyser({ site, emails = [] }, cible) {
     for (const page of pages) if (page) trouves.push(...extraireEmails(page.html));
   }
   const signaux = auditer({ site, urlFinale: accueil?.url, html: accueil?.html ?? null });
-  return { signaux, constat: choisirConstat(signaux, cible), ...choisirEmail(trouves, site) };
+  return { signaux, constat: choisirConstat(signaux, cible), ...choisirEmail(trouves, site, nom) };
 }

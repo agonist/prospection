@@ -1,5 +1,5 @@
 import { utilisateur } from './access';
-import { chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
+import { brouillon, chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
 import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
@@ -7,6 +7,8 @@ import { tache } from './taches';
 export const STATUTS: Record<string, string> = {
   a_analyser: 'En analyse',
   nouveau: 'Prêt à contacter',
+  a_ecrire: 'À écrire',
+  a_appeler: 'À appeler',
   a_verifier: 'À vérifier',
   plus_tard: 'Plus tard',
   hors_cible: 'Hors cible',
@@ -18,10 +20,17 @@ export const STATUTS: Record<string, string> = {
   desinscrit: 'Désinscrit',
 };
 
+const NATURES: Record<string, string> = {
+  generique: 'adresse générique',
+  entreprise: 'adresse au nom de l’entreprise',
+  nominative: 'adresse nominative',
+  autre_domaine: 'adresse sur un autre domaine',
+};
+
 const PAR_PAGE = 100;
 const TROIS_ANS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
 // Statuts qu'on efface au bout de 3 ans sans nouvelle (recommandation CNIL pour la prospection).
-const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
+const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
 
 type Prospect = {
   id: string;
@@ -50,7 +59,10 @@ type Prospect = {
   contacte_le: string | null;
 };
 
-type Filtres = { cible: string; statut: string; ville: string; categorie: string; q: string };
+type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string };
+
+// Statuts que « Réanalyser » renvoie en analyse.
+const REANALYSABLES = ['a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard'];
 
 function lireFiltres(url: URL): Filtres {
   return {
@@ -58,6 +70,7 @@ function lireFiltres(url: URL): Filtres {
     statut: url.searchParams.get('statut') ?? '',
     ville: url.searchParams.get('ville') ?? '',
     categorie: url.searchParams.get('categorie') ?? '',
+    raison: url.searchParams.get('raison') ?? '',
     q: url.searchParams.get('q') ?? '',
   };
 }
@@ -80,6 +93,10 @@ function clauses(filtres: Filtres, sansStatut = false) {
   if (filtres.categorie) {
     conditions.push('categorie = ?');
     valeurs.push(filtres.categorie);
+  }
+  if (filtres.raison && !sansStatut) {
+    conditions.push('raison = ?');
+    valeurs.push(filtres.raison);
   }
   if (filtres.q) {
     conditions.push('(nom LIKE ? OR email LIKE ? OR site LIKE ? OR note LIKE ?)');
@@ -104,6 +121,16 @@ function date(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 }
 
+// Colonne email : bouton « Écrire » pour une adresse nominative, téléphone à défaut d'email.
+function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCibles>>) {
+  if (p.statut === 'a_ecrire' && p.email) {
+    return `<a class="btn contour petit" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 14)}Écrire</a><div class="discret">${echapper(p.email)}</div>`;
+  }
+  if (p.email) return echapper(p.email);
+  if (p.telephone) return `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>`;
+  return '<span class="discret">aucun</span>';
+}
+
 async function liste(url: URL, env: Env) {
   const filtres = lireFiltres(url);
   const numero = Math.max(1, Number(url.searchParams.get('page')) || 1);
@@ -112,12 +139,14 @@ async function liste(url: URL, env: Env) {
 
   const cibles = await chargerCibles(env);
   const parCible = filtres.cible ? 'WHERE cible = ?' : '';
-  const [lignes, total, parStatut, villes, categories, aPurger, travail] = await env.DB.batch([
+  const sansRaison = clauses({ ...filtres, raison: '' });
+  const [lignes, total, parStatut, villes, categories, parRaison, aPurger, travail] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM prospects ${where} ORDER BY vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${where}`).bind(...valeurs),
     env.DB.prepare(`SELECT statut, COUNT(*) AS n FROM prospects ${sansStatut.where} GROUP BY statut`).bind(...sansStatut.valeurs),
     env.DB.prepare(`SELECT ville, COUNT(*) AS n FROM prospects ${filtres.cible ? 'WHERE cible = ?' : ''} GROUP BY ville ORDER BY ville`).bind(...(filtres.cible ? [filtres.cible] : [])),
     env.DB.prepare(`SELECT categorie, COUNT(*) AS n FROM prospects ${parCible} GROUP BY categorie ORDER BY n DESC LIMIT 80`).bind(...(filtres.cible ? [filtres.cible] : [])),
+    env.DB.prepare(`SELECT raison, COUNT(*) AS n FROM prospects ${sansRaison.where} GROUP BY raison ORDER BY n DESC LIMIT 20`).bind(...sansRaison.valeurs),
     env.DB.prepare(
       `SELECT COUNT(*) AS n FROM prospects WHERE statut IN (${PURGEABLES.map(() => '?').join(', ')}) AND statut_le < ? AND vu_le < ?`,
     ).bind(...PURGEABLES, new Date(Date.now() - TROIS_ANS_MS).toISOString(), new Date(Date.now() - TROIS_ANS_MS).toISOString()),
@@ -143,6 +172,19 @@ async function liste(url: URL, env: Env) {
       ),
   ].join('');
 
+  const raisons = (parRaison.results as { raison: string; n: number }[]).filter(({ raison }) => raison);
+  const motifs =
+    filtres.statut && raisons.length > 1
+      ? `<nav class="motifs">${[
+          `<a href="${lienFiltres({ ...filtres, raison: '' })}" class="${filtres.raison ? '' : 'actif'}">Toutes les raisons</a>`,
+          ...raisons.map(
+            ({ raison, n }) =>
+              `<a href="${lienFiltres({ ...filtres, raison })}" class="${filtres.raison === raison ? 'actif' : ''}">${echapper(raison.split(' : ')[0])}<em>${n}</em></a>`,
+          ),
+        ].join('')}</nav>`
+      : '';
+  const reanalysable = REANALYSABLES.includes(filtres.statut) && nombre > 0;
+
   const stat = (statut: string, libelle: string) =>
     `<a class="carte stat" href="${lienFiltres({ ...filtres, statut })}"><span>${libelle}</span><strong>${compteStatuts[statut] ?? 0}</strong></a>`;
 
@@ -160,8 +202,12 @@ async function liste(url: URL, env: Env) {
       (p) => `<tr>
         <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
         <td>${badge(p.statut)}</td>
-        <td class="tronque">${echapper(p.constat || p.raison)}</td>
-        <td>${p.email ? echapper(p.email) : '<span class="discret">aucun</span>'}</td>
+        <td class="tronque">${
+          p.raison && ['a_verifier', 'a_ecrire', 'a_appeler'].includes(p.statut)
+            ? `${echapper(p.raison.split(' : ')[0])}${p.constat ? `<div class="discret">${echapper(p.constat)}</div>` : ''}`
+            : echapper(p.constat || p.raison)
+        }</td>
+        <td>${contact(p, cibles)}</td>
         <td>${p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="lien-site">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}${icone('externe', 12)}</a>` : '<span class="discret">aucun</span>'}</td>
         <td class="discret">${date(p.vu_le)}</td>
       </tr>`,
@@ -192,7 +238,7 @@ async function liste(url: URL, env: Env) {
         : ''
     }
     <section class="stats">
-      ${stat('nouveau', 'Prêts à contacter')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}${stat('client', 'Clients')}
+      ${stat('nouveau', 'Prêts pour Smartlead')}${stat('a_ecrire', 'À écrire à la main')}${stat('a_appeler', 'À appeler')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}
     </section>
     <form class="outils" method="get" action="/">
       <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
@@ -203,6 +249,15 @@ async function liste(url: URL, env: Env) {
       <button type="submit" class="btn contour">${icone('recherches')}Chercher</button>
     </form>
     <nav class="onglets">${onglets}</nav>
+    ${motifs}
+    ${
+      reanalysable
+        ? `<form class="alerte" method="post" action="/reanalyser">${champsCaches}
+            <p>${filtres.statut === 'a_ecrire' ? 'Le bouton « Écrire » ouvre l’email prérempli et passe la fiche en « En campagne ». ' : ''}${filtres.statut === 'a_appeler' ? 'Pas d’email trouvé, mais un numéro : clique dessus pour appeler. ' : ''}Si les règles d’analyse ont changé, tu peux repasser ces ${nombre} fiches à l’analyse.</p>
+            <button type="submit" class="btn contour petit">${icone('activite', 14)}Réanalyser</button>
+          </form>`
+        : ''
+    }
     ${
       exportable
         ? `<form class="alerte succes" method="post" action="/export">${champsCaches}
@@ -215,7 +270,7 @@ async function liste(url: URL, env: Env) {
     <div class="carte">
     ${
       prospects.length
-        ? `<div class="tableau"><table><thead><tr><th>Établissement</th><th>Statut</th><th>Constat ou raison</th><th>Email</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
+        ? `<div class="tableau"><table><thead><tr><th>Établissement</th><th>Statut</th><th>Constat ou raison</th><th>Contact</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
         : '<div class="vide"><strong>Aucun prospect ici</strong>Lance une <a href="/recherches">nouvelle recherche</a> pour remplir la base.</div>'
     }
     ${pagination}
@@ -255,7 +310,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
         }
         <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Coordonnées</h2></div>
           <div class="carte-contenu"><dl>
-            ${ligne('Email', p.email ? `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span> <span class="discret">${echapper(p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Téléphone', p.telephone ? `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>` : '')}
             ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\//, '')) : '<span class="discret">aucun</span>')}
             ${ligne('Fiche Google', p.fiche_google ? `${lienExterne(p.fiche_google, 'Ouvrir')}${p.note_google ? ` <span class="discret">· ${p.note_google} ★ (${p.avis_google ?? 0} avis)</span>` : ''}` : '')}
@@ -320,11 +375,12 @@ async function exporter(requete: Request, env: Env) {
     statut: 'nouveau',
     ville: String(donnees.get('ville') ?? ''),
     categorie: String(donnees.get('categorie') ?? ''),
+    raison: '',
     q: String(donnees.get('q') ?? ''),
   };
   const { where, valeurs } = clauses(filtres);
   // Une adresse désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.
-  const selection = `${where} AND email_statut = 'generique' AND email <> ''
+  const selection = `${where} AND email_statut IN ('generique', 'entreprise') AND email <> ''
     AND email NOT IN (SELECT email FROM prospects WHERE statut = 'desinscrit' AND email <> '')`;
   const { results } = await env.DB.prepare(`SELECT * FROM prospects ${selection} ORDER BY vu_le DESC`)
     .bind(...valeurs)
@@ -359,6 +415,15 @@ async function exporter(requete: Request, env: Env) {
   });
 }
 
+async function reanalyser(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const filtres = Object.fromEntries(['cible', 'statut', 'ville', 'categorie', 'raison', 'q'].map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
+  if (!REANALYSABLES.includes(filtres.statut)) return new Response('Statut non réanalysable', { status: 400 });
+  const { where, valeurs } = clauses(filtres);
+  await env.DB.prepare(`UPDATE prospects SET statut = 'a_analyser' ${where}`).bind(...valeurs).run();
+  return Response.redirect(new URL('/recherches', requete.url).toString(), 303);
+}
+
 async function purger(requete: Request, env: Env) {
   const limite = new Date(Date.now() - TROIS_ANS_MS).toISOString();
   await env.DB.prepare(`DELETE FROM prospects WHERE statut IN (${PURGEABLES.map(() => '?').join(', ')}) AND statut_le < ? AND vu_le < ?`)
@@ -378,6 +443,16 @@ export default {
       if (origine && origine !== url.origin) return new Response('Origine refusée', { status: 403 });
     }
 
+    const ecrit = url.pathname.match(/^\/p\/(.+)\/ecrit$/);
+    if (ecrit && requete.method === 'POST') {
+      const maintenant = new Date().toISOString();
+      await env.DB.prepare(
+        "UPDATE prospects SET statut = 'en_campagne', statut_le = ?, contacte_le = COALESCE(contacte_le, ?) WHERE id = ? AND statut = 'a_ecrire'",
+      )
+        .bind(maintenant, maintenant, decodeURIComponent(ecrit[1]))
+        .run();
+      return new Response(null, { status: 204 });
+    }
     const fichePath = url.pathname.match(/^\/p\/(.+)$/);
     if (fichePath) {
       const id = decodeURIComponent(fichePath[1]);
@@ -390,6 +465,7 @@ export default {
     if (url.pathname === '/cibles' && requete.method === 'GET') return pageCibles(url, env);
     if (url.pathname === '/cibles' && requete.method === 'POST') return enregistrerCible(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
+    if (url.pathname === '/reanalyser' && requete.method === 'POST') return reanalyser(requete, env);
     if (url.pathname === '/purger' && requete.method === 'POST') return purger(requete, env);
     return new Response('Page introuvable', { status: 404 });
   },

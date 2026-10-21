@@ -110,7 +110,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--primaire);
 .deux-colonnes { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); align-items: start; }
 
 /* Chiffres clés */
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
 .stat { padding: 16px 20px; text-decoration: none; display: block; transition: border-color .15s; }
 .stat:hover { border-color: var(--anneau); }
 .stat span { color: var(--attenue-texte); font-weight: 500; font-size: 13px; }
@@ -148,6 +148,12 @@ td a:hover { text-decoration: underline; }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .badge-nouveau, .badge-client { background: color-mix(in srgb, var(--succes) 14%, transparent); color: var(--succes); }
 .badge-a_verifier { background: color-mix(in srgb, var(--attention) 16%, transparent); color: var(--attention); }
+.badge-a_ecrire { background: color-mix(in srgb, #0ea5e9 14%, transparent); color: #0284c7; }
+.badge-a_appeler { background: color-mix(in srgb, #f97316 14%, transparent); color: #ea580c; }
+.motifs { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 16px; }
+.motifs a { border: 1px solid var(--bord); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--attenue-texte); text-decoration: none; }
+.motifs a.actif { background: var(--texte); color: var(--fond); border-color: var(--texte); }
+.motifs em { font-style: normal; opacity: .7; margin-left: 4px; }
 .badge-en_campagne { background: color-mix(in srgb, #3b82f6 14%, transparent); color: #3b82f6; }
 .badge-a_repondu, .badge-maquette { background: color-mix(in srgb, #8b5cf6 14%, transparent); color: #8b5cf6; }
 .badge-desinscrit { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
@@ -207,7 +213,7 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 .couverture { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 1000px) {
   .deux-colonnes { grid-template-columns: 1fr; }
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); }

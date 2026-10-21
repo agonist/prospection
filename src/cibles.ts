@@ -1,7 +1,7 @@
 // Les cibles (métier, communes, exclusions, ordre des constats) sont gardées en
 // base pour être modifiables dans l'admin. scripts/cibles.mjs donne les valeurs
 // de départ, insérées au premier chargement.
-import { CIBLES, CONSTATS, VERSION_CIBLES } from '../scripts/cibles.mjs';
+import { CIBLES, CONSTATS, MODELE_EMAIL, VERSION_CIBLES } from '../scripts/cibles.mjs';
 import { echapper, icone, page } from './html';
 
 export type Cible = {
@@ -11,9 +11,10 @@ export type Cible = {
   communes: string[];
   exclure: RegExp[];
   constats: string[];
+  modele?: string;
 };
 
-type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string };
+type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string; modele: string };
 
 // Une recherche déjà faite depuis moins de 6 mois n'est pas relancée.
 export const DELAI_TERMES_MS = 183 * 24 * 60 * 60 * 1000;
@@ -30,14 +31,15 @@ function versCible(ligne: Ligne): Cible {
     communes: JSON.parse(ligne.communes),
     exclure: (JSON.parse(ligne.exclure) as string[]).map((motif) => new RegExp(motif, 'i')),
     constats: JSON.parse(ligne.constats),
+    modele: ligne.modele,
   };
 }
 
 function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   return env.DB.prepare(
-    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes,
-        exclure = excluded.exclure, constats = excluded.constats, modifie_le = excluded.modifie_le`,
+        exclure = excluded.exclure, constats = excluded.constats, modele = excluded.modele, modifie_le = excluded.modifie_le`,
   ).bind(
     cle,
     cible.nom,
@@ -46,6 +48,7 @@ function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
     JSON.stringify(cible.communes),
     JSON.stringify(cible.exclure.map((motif) => motif.source)),
     JSON.stringify(cible.constats),
+    cible.modele ?? '',
     new Date().toISOString(),
   );
 }
@@ -86,6 +89,14 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
   ]);
   // Les cibles par défaut d'abord, dans leur ordre, puis celles créées dans l'admin.
   return Object.fromEntries([...defauts.map(([cle]) => cle), ...Object.keys(cibles)].map((cle) => [cle, cibles[cle]]));
+}
+
+// Lien mailto: avec l'email du modèle rempli pour ce prospect.
+export function brouillon(cible: Cible | undefined, p: { email: string; nom: string; recherche: string; constat: string; ville: string }) {
+  const remplir = (texte: string) =>
+    texte.replace(/\{\{(nom|recherche|constat|ville)\}\}/g, (_, champ: 'nom' | 'recherche' | 'constat' | 'ville') => p[champ] ?? '');
+  const [objet, ...corps] = remplir(cible?.modele || MODELE_EMAIL).split('\n');
+  return `mailto:${p.email}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps.join('\n').trim())}`;
 }
 
 // Les recherches « métier commune » d'une cible.
@@ -167,6 +178,9 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
             <span class="aide">Un par ligne, cherché dans le nom et la catégorie Google. Les expressions régulières marchent aussi.</span></div>
           <div></div>
         </div>
+        <div class="champ"><label for="modele">Email écrit à la main</label>
+          <textarea id="modele" name="modele" rows="11">${echapper(cible.modele || MODELE_EMAIL)}</textarea>
+          <span class="aide">Pour les adresses nominatives, qui ne partent pas dans Smartlead. Première ligne : l’objet. {{nom}}, {{recherche}}, {{constat}} et {{ville}} sont remplacés.</span></div>
         <div class="champ"><label>Constats, par priorité</label>
           <span class="aide">Le premier constat vrai pour un site part dans l’email. Laisse vide pour ne pas utiliser un constat.</span>
           <div class="tableau"><table class="compact"><thead><tr><th>Priorité</th><th>Phrase après « j’ai remarqué que »</th></tr></thead><tbody>${constats}</tbody></table></div></div>
@@ -191,6 +205,12 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
 export function barre(valeur: number, max: number, texte: string) {
   const pourcentage = max ? Math.round((valeur / max) * 100) : 0;
   return `<div class="progression"><div class="piste"><i style="width: ${pourcentage}%"></i></div><span class="discret">${texte}</span></div>`;
+}
+
+// Le modèle par défaut n'est pas recopié : il suit ainsi ses mises à jour.
+function modeleEnvoye(valeur: unknown) {
+  const texte = String(valeur ?? '').replace(/\r\n/g, '\n').trim();
+  return texte === MODELE_EMAIL ? '' : texte;
 }
 
 export async function enregistrerCible(requete: Request, env: Env) {
@@ -221,6 +241,6 @@ export async function enregistrerCible(requete: Request, env: Env) {
     .sort((a, b) => a.rang - b.rang)
     .map(({ constat }) => constat);
 
-  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats }).run();
+  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats, modele: modeleEnvoye(donnees.get('modele')) }).run();
   return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}`, requete.url).toString(), 303);
 }

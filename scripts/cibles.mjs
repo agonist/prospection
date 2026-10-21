@@ -18,6 +18,19 @@ export const CONSTATS = {
   vieuxCopyright: "votre site n'a pas l'air d'avoir été mis à jour depuis {annee}",
 };
 
+// Email écrit à la main aux adresses nominatives (pas de Smartlead pour elles).
+// La première ligne est l'objet. {{nom}}, {{recherche}}, {{constat}} et {{ville}}
+// sont remplacés par les données du prospect. Modifiable par cible dans l'admin.
+export const MODELE_EMAIL = `{{nom}}, une remarque sur votre présence en ligne
+Bonjour,
+
+En cherchant « {{recherche}} » sur Google, je suis tombé sur votre fiche. En regardant, j'ai remarqué que {{constat}}.
+
+Je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous parle, je peux vous montrer en deux minutes ce que ça donnerait pour vous, sans engagement.
+
+Bonne journée,
+Bas`;
+
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.

@@ -14,7 +14,9 @@ Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé pa
 | --- | --- | --- |
 | En analyse | la recherche | Fiche importée, site pas encore visité |
 | Prêt à contacter | l'import | Adresse générique et constat trouvés |
-| À vérifier | l'import | Pas d'email, email nominatif ou d'un autre domaine, site injoignable |
+| À écrire | l'import | Adresse nominative : le bouton « Écrire » ouvre l'email prérempli (modèle dans **Cibles**) et passe la fiche en campagne |
+| À appeler | l'import | Pas d'email trouvé, mais un téléphone |
+| À vérifier | l'import | Site injoignable, adresse sur un autre domaine (peut-être l'agence web), ni email ni téléphone |
 | Plus tard | l'import | Le site a l'air correct aujourd'hui |
 | Hors cible | l'import | Coopérative, enseigne, fermé… |
 | En campagne | l'export Smartlead | Envoyé dans Smartlead |
@@ -74,13 +76,15 @@ La liste des prospects se filtre aussi par catégorie Google (« Producteur de v
 3. **Exporter pour Smartlead** télécharge le CSV et passe les fiches en « En campagne ». Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche.
 4. Dans Smartlead : importer le CSV, faire correspondre `recherche`, `constat` et `source` à des variables personnalisées, puis lancer la vérification des emails.
 
+Dans les onglets « À écrire », « À appeler » et « À vérifier », la raison de chaque fiche est affichée, avec un filtre par raison. **Réanalyser** repasse les fiches de l'onglet à l'analyse, par exemple après un changement des règles.
+
 Quand quelqu'un répond, mettre à jour son statut dans l'admin, et noter ce qui s'est dit.
 
 ## RGPD et CNIL
 
 Les artisans et praticiens en nom propre sont des personnes physiques : leurs données sont des données personnelles.
 
-- On ne prospecte sans consentement que les adresses **génériques** (contact@, info@…). Une adresse nominative reste en « À vérifier » et ne part jamais dans Smartlead.
+- Smartlead ne reçoit que les adresses **génériques** (contact@, info@…) et celles **au nom de l'entreprise** (menuiserie.dupont@…, domaine.muller@…), qui ne désignent pas une personne. Une adresse qui contient un prénom (claire.martin@, c.martin@) est nominative : elle passe en « À écrire » et ne part jamais dans Smartlead.
 - Chaque email propose de se désinscrire. Une demande de désinscription passe la fiche en **Désinscrit**, et elle y reste.
 - Un prospect sans nouvelles depuis 3 ans doit être effacé. L'admin affiche un bandeau quand il y en a, avec un bouton pour les effacer. Les clients, les désinscrits et les échanges en cours ne sont jamais effacés.
 
