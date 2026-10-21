@@ -11,6 +11,7 @@ export function echapper(valeur: unknown): string {
 const TRACES = {
   prospects: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   recherches: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  jouer: '<polygon points="6 3 20 12 6 21 6 3"/>',
   cibles: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   telecharger: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
@@ -211,7 +212,27 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 .actions-ligne { text-align: right; white-space: nowrap; }
 .actions-ligne .btn + .btn { margin-left: 6px; }
 .couverture { display: flex; flex-wrap: wrap; gap: 6px; }
+.priorite { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--attenue); color: var(--attenue-texte); }
+.priorite-haute { background: color-mix(in srgb, var(--succes) 16%, transparent); color: var(--succes); }
+.priorite-moyenne { background: color-mix(in srgb, var(--attention) 14%, transparent); color: var(--attention); }
+.case-ligne { width: 32px; padding-right: 0 !important; }
+.case-ligne input { width: 16px; height: 16px; accent-color: var(--primaire); }
+.barre-lot { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--bord); }
+.barre-lot span { margin-right: auto; }
+.barre-lot select { width: auto; }
+.traiter { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+.actions-traiter { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions-traiter kbd { margin-left: 8px; font: 11px "Geist Mono", ui-monospace, monospace; opacity: .6; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+.apercu { position: sticky; top: 16px; border: 1px solid var(--bord); border-radius: calc(var(--rayon) + 4px); overflow: hidden; background: var(--carte); }
+.apercu-barre { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--bord); background: var(--attenue); font-size: 13px; }
+.apercu-barre span { flex: 1; min-width: 0; }
+.apercu iframe { display: block; width: 100%; height: 72vh; border: 0; background: #fff; }
+.apercu > p { margin: 0; padding: 8px 12px; font-size: 12px; border-top: 1px solid var(--bord); }
+.apercu.vide { padding: 48px 24px; }
+.gros { font-size: 16px; font-weight: 600; }
 @media (max-width: 1000px) {
+  .traiter { grid-template-columns: minmax(0, 1fr); }
+  .apercu { position: static; }
   .deux-colonnes { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

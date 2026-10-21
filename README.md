@@ -76,6 +76,8 @@ La liste des prospects se filtre aussi par catégorie Google (« Producteur de v
 3. **Exporter pour Smartlead** télécharge le CSV et passe les fiches en « En campagne ». Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche.
 4. Dans Smartlead : importer le CSV, faire correspondre `recherche`, `constat` et `source` à des variables personnalisées, puis lancer la vérification des emails.
 
+**Traiter** (en haut des onglets Prêt à contacter, À écrire, À appeler et À vérifier) montre une fiche à la fois, la plus prioritaire d'abord, avec l'aperçu du site et les actions sur les touches 1 à 5. La priorité (sur 100) favorise les entreprises bien notées et avec beaucoup d'avis dont la présence en ligne est faible. Dans la liste, cocher des fiches permet de changer leur statut d'un coup.
+
 Dans les onglets « À écrire », « À appeler » et « À vérifier », la raison de chaque fiche est affichée, avec un filtre par raison. **Réanalyser** repasse les fiches de l'onglet à l'analyse, par exemple après un changement des règles.
 
 Quand quelqu'un répond, mettre à jour son statut dans l'admin, et noter ce qui s'est dit.

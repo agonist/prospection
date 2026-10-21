@@ -1,135 +1,29 @@
 import { utilisateur } from './access';
-import { brouillon, chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
+import { chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
+import {
+  NATURES,
+  PAR_PAGE,
+  PURGEABLES,
+  REANALYSABLES,
+  STATUTS,
+  TROIS_ANS_MS,
+  type Filtres,
+  type Prospect,
+  SCORE,
+  TRAITABLES,
+  badge,
+  changerStatut,
+  clauses,
+  priorite,
+  contact,
+  date,
+  lienFiltres,
+  lireFiltres,
+} from './prospects';
 import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
-
-export const STATUTS: Record<string, string> = {
-  a_analyser: 'En analyse',
-  nouveau: 'Prêt à contacter',
-  a_ecrire: 'À écrire',
-  a_appeler: 'À appeler',
-  a_verifier: 'À vérifier',
-  plus_tard: 'Plus tard',
-  hors_cible: 'Hors cible',
-  en_campagne: 'En campagne',
-  a_repondu: 'A répondu',
-  maquette: 'Maquette envoyée',
-  client: 'Client',
-  pas_interesse: 'Pas intéressé',
-  desinscrit: 'Désinscrit',
-};
-
-const NATURES: Record<string, string> = {
-  generique: 'adresse générique',
-  entreprise: 'adresse au nom de l’entreprise',
-  nominative: 'adresse nominative',
-  autre_domaine: 'adresse sur un autre domaine',
-};
-
-const PAR_PAGE = 100;
-const TROIS_ANS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
-// Statuts qu'on efface au bout de 3 ans sans nouvelle (recommandation CNIL pour la prospection).
-const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
-
-type Prospect = {
-  id: string;
-  cible: string;
-  nom: string;
-  categorie: string;
-  ville: string;
-  adresse: string;
-  telephone: string;
-  site: string;
-  fiche_google: string;
-  note_google: number | null;
-  avis_google: number | null;
-  recherche: string;
-  email: string;
-  email_statut: string;
-  constat_cle: string;
-  constat: string;
-  signaux: string;
-  raison: string;
-  statut: string;
-  note: string;
-  cree_le: string;
-  vu_le: string;
-  statut_le: string;
-  contacte_le: string | null;
-};
-
-type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string };
-
-// Statuts que « Réanalyser » renvoie en analyse.
-const REANALYSABLES = ['a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard'];
-
-function lireFiltres(url: URL): Filtres {
-  return {
-    cible: url.searchParams.get('cible') ?? '',
-    statut: url.searchParams.get('statut') ?? '',
-    ville: url.searchParams.get('ville') ?? '',
-    categorie: url.searchParams.get('categorie') ?? '',
-    raison: url.searchParams.get('raison') ?? '',
-    q: url.searchParams.get('q') ?? '',
-  };
-}
-
-function clauses(filtres: Filtres, sansStatut = false) {
-  const conditions: string[] = [];
-  const valeurs: string[] = [];
-  if (filtres.cible) {
-    conditions.push('cible = ?');
-    valeurs.push(filtres.cible);
-  }
-  if (filtres.statut && !sansStatut) {
-    conditions.push('statut = ?');
-    valeurs.push(filtres.statut);
-  }
-  if (filtres.ville) {
-    conditions.push('ville = ?');
-    valeurs.push(filtres.ville);
-  }
-  if (filtres.categorie) {
-    conditions.push('categorie = ?');
-    valeurs.push(filtres.categorie);
-  }
-  if (filtres.raison && !sansStatut) {
-    conditions.push('raison = ?');
-    valeurs.push(filtres.raison);
-  }
-  if (filtres.q) {
-    conditions.push('(nom LIKE ? OR email LIKE ? OR site LIKE ? OR note LIKE ?)');
-    const motif = `%${filtres.q}%`;
-    valeurs.push(motif, motif, motif, motif);
-  }
-  return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', valeurs };
-}
-
-function lienFiltres(filtres: Partial<Filtres>, extra: Record<string, string> = {}) {
-  const params = new URLSearchParams();
-  for (const [cle, valeur] of Object.entries({ ...filtres, ...extra })) if (valeur) params.set(cle, valeur);
-  const texte = params.toString();
-  return texte ? `/?${texte}` : '/';
-}
-
-function badge(statut: string) {
-  return `<span class="badge badge-${echapper(statut)}">${echapper(STATUTS[statut] ?? statut)}</span>`;
-}
-
-function date(iso: string | null) {
-  return iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-}
-
-// Colonne email : bouton « Écrire » pour une adresse nominative, téléphone à défaut d'email.
-function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCibles>>) {
-  if (p.statut === 'a_ecrire' && p.email) {
-    return `<a class="btn contour petit" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 14)}Écrire</a><div class="discret">${echapper(p.email)}</div>`;
-  }
-  if (p.email) return echapper(p.email);
-  if (p.telephone) return `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>`;
-  return '<span class="discret">aucun</span>';
-}
+import { pageTraiter, traiter } from './traiter';
 
 async function liste(url: URL, env: Env) {
   const filtres = lireFiltres(url);
@@ -138,10 +32,12 @@ async function liste(url: URL, env: Env) {
   const sansStatut = clauses(filtres, true);
 
   const cibles = await chargerCibles(env);
+  // Les files à traiter se lisent par priorité, le reste du plus récent au plus ancien.
+  const parPriorite = filtres.tri ? filtres.tri === 'priorite' : TRAITABLES.includes(filtres.statut);
   const parCible = filtres.cible ? 'WHERE cible = ?' : '';
   const sansRaison = clauses({ ...filtres, raison: '' });
   const [lignes, total, parStatut, villes, categories, parRaison, aPurger, travail] = await env.DB.batch([
-    env.DB.prepare(`SELECT * FROM prospects ${where} ORDER BY vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
+    env.DB.prepare(`SELECT *, ${SCORE} AS score FROM prospects ${where} ORDER BY ${parPriorite ? 'score DESC, ' : ''}vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${where}`).bind(...valeurs),
     env.DB.prepare(`SELECT statut, COUNT(*) AS n FROM prospects ${sansStatut.where} GROUP BY statut`).bind(...sansStatut.valeurs),
     env.DB.prepare(`SELECT ville, COUNT(*) AS n FROM prospects ${filtres.cible ? 'WHERE cible = ?' : ''} GROUP BY ville ORDER BY ville`).bind(...(filtres.cible ? [filtres.cible] : [])),
@@ -200,8 +96,10 @@ async function liste(url: URL, env: Env) {
   const rangees = prospects
     .map(
       (p) => `<tr>
+        <td class="case-ligne"><input type="checkbox" name="ids" value="${echapper(p.id)}" form="lot" aria-label="Choisir ${echapper(p.nom)}"></td>
         <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
         <td>${badge(p.statut)}</td>
+        <td>${priorite(p.score)}</td>
         <td class="tronque">${
           p.raison && ['a_verifier', 'a_ecrire', 'a_appeler'].includes(p.statut)
             ? `${echapper(p.raison.split(' : ')[0])}${p.constat ? `<div class="discret">${echapper(p.constat)}</div>` : ''}`
@@ -229,7 +127,11 @@ async function liste(url: URL, env: Env) {
     'Prospects',
     `<header class="page-entete">
       <div><h1>Prospects</h1><p>Tous les établissements trouvés, avec leur constat et leur statut.</p></div>
-      <div class="actions-entete"><a href="/recherches" class="btn">${icone('plus')}Nouvelle recherche</a></div>
+      <div class="actions-entete">${
+        TRAITABLES.includes(filtres.statut) && nombre
+          ? `<a href="/traiter${lienFiltres(filtres).slice(1)}" class="btn">${icone('jouer')}Traiter ces ${nombre} fiches</a><a href="/recherches" class="btn contour">${icone('plus')}Nouvelle recherche</a>`
+          : `<a href="/recherches" class="btn">${icone('plus')}Nouvelle recherche</a>`
+      }</div>
     </header>
     ${purge ? `<form class="alerte attention" method="post" action="/purger" onsubmit="return confirm('Effacer définitivement ${purge} prospects ?')"><p>${purge} prospects n’ont pas bougé depuis 3 ans. La CNIL recommande de les effacer.</p><button type="submit" class="btn contour petit">${icone('poubelle', 14)}Effacer</button></form>` : ''}
     ${
@@ -244,6 +146,7 @@ async function liste(url: URL, env: Env) {
       <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
       <select name="categorie" onchange="this.form.submit()"><option value="">Toutes les catégories</option>${optionsCategories}</select>
       <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
+      <select name="tri" onchange="this.form.submit()"><option value="priorite" ${parPriorite ? 'selected' : ''}>Par priorité</option><option value="recent" ${parPriorite ? '' : 'selected'}>Plus récents</option></select>
       <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
       <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…">
       <button type="submit" class="btn contour">${icone('recherches')}Chercher</button>
@@ -270,7 +173,27 @@ async function liste(url: URL, env: Env) {
     <div class="carte">
     ${
       prospects.length
-        ? `<div class="tableau"><table><thead><tr><th>Établissement</th><th>Statut</th><th>Constat ou raison</th><th>Contact</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
+        ? `<form id="lot" method="post" action="/lot" class="barre-lot">
+            <input type="hidden" name="retour" value="${echapper(lienFiltres(filtres, numero > 1 ? { page: String(numero) } : {}))}">
+            <span class="discret" id="compte-lot">Coche des fiches pour changer leur statut d’un coup.</span>
+            <select name="statut" required><option value="">Passer en…</option>${Object.entries(STATUTS)
+              .filter(([statut]) => statut !== 'a_analyser')
+              .map(([statut, libelle]) => `<option value="${statut}">${libelle}</option>`)
+              .join('')}</select>
+            <button type="submit" class="btn contour petit">Appliquer</button>
+          </form>
+          <script>
+            function majLot() {
+              const n = document.querySelectorAll('input[name=ids]:checked').length;
+              document.getElementById('compte-lot').textContent = n ? n + (n > 1 ? ' fiches choisies' : ' fiche choisie') : 'Coche des fiches pour changer leur statut d’un coup.';
+            }
+            document.addEventListener('change', (e) => e.target.name === 'ids' && majLot());
+          </script>`
+        : ''
+    }
+    ${
+      prospects.length
+        ? `<div class="tableau"><table><thead><tr><th class="case-ligne"><input type="checkbox" aria-label="Tout choisir" onclick="document.querySelectorAll('input[name=ids]').forEach((c) => (c.checked = this.checked)); majLot()"></th><th>Établissement</th><th>Statut</th><th>Priorité</th><th>Constat ou raison</th><th>Contact</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
         : '<div class="vide"><strong>Aucun prospect ici</strong>Lance une <a href="/recherches">nouvelle recherche</a> pour remplir la base.</div>'
     }
     ${pagination}
@@ -344,17 +267,7 @@ async function modifier(id: string, requete: Request, env: Env) {
   const statut = String(donnees.get('statut') ?? '');
   const note = donnees.get('note');
   if (!(statut in STATUTS)) return new Response('Statut inconnu', { status: 400 });
-  const maintenant = new Date().toISOString();
-  await env.DB.prepare(
-    `UPDATE prospects SET
-      statut_le = CASE WHEN statut <> ?1 THEN ?2 ELSE statut_le END,
-      contacte_le = CASE WHEN ?1 = 'en_campagne' AND contacte_le IS NULL THEN ?2 ELSE contacte_le END,
-      statut = ?1,
-      note = COALESCE(?3, note)
-    WHERE id = ?4`,
-  )
-    .bind(statut, maintenant, note == null ? null : String(note), id)
-    .run();
+  await changerStatut(env, id, statut, note == null ? null : String(note)).run();
   return Response.redirect(new URL(`/p/${encodeURIComponent(id)}?ok=1`, requete.url).toString(), 303);
 }
 
@@ -376,6 +289,7 @@ async function exporter(requete: Request, env: Env) {
     ville: String(donnees.get('ville') ?? ''),
     categorie: String(donnees.get('categorie') ?? ''),
     raison: '',
+    tri: '',
     q: String(donnees.get('q') ?? ''),
   };
   const { where, valeurs } = clauses(filtres);
@@ -415,9 +329,19 @@ async function exporter(requete: Request, env: Env) {
   });
 }
 
+async function lot(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const statut = String(donnees.get('statut') ?? '');
+  const ids = donnees.getAll('ids').map(String).slice(0, 100);
+  if (!(statut in STATUTS) || statut === 'a_analyser') return new Response('Statut inconnu', { status: 400 });
+  if (ids.length) await env.DB.batch(ids.map((id) => changerStatut(env, id, statut, null)));
+  const retour = String(donnees.get('retour') ?? '/');
+  return Response.redirect(new URL(retour.startsWith('/') && !retour.startsWith('//') ? retour : '/', requete.url).toString(), 303);
+}
+
 async function reanalyser(requete: Request, env: Env) {
   const donnees = await requete.formData();
-  const filtres = Object.fromEntries(['cible', 'statut', 'ville', 'categorie', 'raison', 'q'].map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
+  const filtres = Object.fromEntries(['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri'].map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
   if (!REANALYSABLES.includes(filtres.statut)) return new Response('Statut non réanalysable', { status: 400 });
   const { where, valeurs } = clauses(filtres);
   await env.DB.prepare(`UPDATE prospects SET statut = 'a_analyser' ${where}`).bind(...valeurs).run();
@@ -465,6 +389,9 @@ export default {
     if (url.pathname === '/cibles' && requete.method === 'GET') return pageCibles(url, env);
     if (url.pathname === '/cibles' && requete.method === 'POST') return enregistrerCible(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
+    if (url.pathname === '/lot' && requete.method === 'POST') return lot(requete, env);
+    if (url.pathname === '/traiter' && requete.method === 'GET') return pageTraiter(url, env);
+    if (url.pathname === '/traiter' && requete.method === 'POST') return traiter(requete, env);
     if (url.pathname === '/reanalyser' && requete.method === 'POST') return reanalyser(requete, env);
     if (url.pathname === '/purger' && requete.method === 'POST') return purger(requete, env);
     return new Response('Page introuvable', { status: 404 });

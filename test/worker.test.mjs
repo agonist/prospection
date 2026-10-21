@@ -126,6 +126,25 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Domaine E'), /badge-a_appeler[\s\S]*href="tel:03 89 00 00 00"/);
     assert.match(await (await fetch(`${admin}/?statut=a_appeler`)).text(), /pas d’email trouvé<em>1<\/em>|Réanalyser/);
 
+    // Mode traitement : une fiche à la fois, « Pas de réponse » note l'appel et passe à la suivante.
+    const traitement = await (await fetch(`${admin}/traiter?statut=a_appeler`)).text();
+    assert.match(traitement, /<h1>Domaine E<\/h1>/);
+    assert.match(traitement, /Pas de réponse<kbd>3<\/kbd>/);
+    const apres = await fetch(`${admin}/traiter`, {
+      method: 'POST',
+      body: new URLSearchParams({ id: 'E', action: 'sans_reponse', statut: 'a_appeler', note: '' }),
+      redirect: 'manual',
+    });
+    assert.match(apres.headers.get('location'), /\/traiter\?statut=a_appeler&sauf=E$/);
+    assert.match(await (await fetch(apres.headers.get('location'))).text(), /Plus rien à traiter ici/);
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /Appel sans réponse le/);
+    assert.match(await (await fetch(`${admin}/traiter?statut=a_ecrire`)).text(), /<h1>Domaine D<\/h1>[\s\S]*href="mailto:claire\.martin@gmail\.com/);
+
+    // Changement de statut groupé depuis la liste.
+    const groupe = await fetch(`${admin}/lot`, { method: 'POST', body: new URLSearchParams([['ids', 'C'], ['statut', 'pas_interesse'], ['retour', '/?statut=hors_cible']]), redirect: 'manual' });
+    assert.equal(groupe.headers.get('location'), `${admin}/?statut=hors_cible`);
+    assert.match(await (await fetch(`${admin}/p/C`)).text(), /badge-pas_interesse/);
+
     // « Écrire » passe la fiche en campagne.
     assert.equal((await fetch(`${admin}/p/D/ecrit`, { method: 'POST' })).status, 204);
     assert.match(await (await fetch(`${admin}/p/D`)).text(), /badge-en_campagne/);
