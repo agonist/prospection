@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "prospection",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "prospection",
+      // Remplacer par l'identifiant affiché par `wrangler d1 create prospection`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Domaine de l'équipe Zero Trust, par exemple cestbienbeau.cloudflareaccess.com.
+    "ACCESS_EQUIPE": "",
+    // « Application Audience (AUD) Tag » de l'application Access qui protège ce Worker.
+    "ACCESS_AUD": "",
+    "ACCESS_DESACTIVE": "0"
+  },
+  "observability": { "enabled": true }
+}

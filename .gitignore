@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+.dev.vars
+# Exports Apify et SQL générés : données de prospects, jamais dans git.
+donnees/
