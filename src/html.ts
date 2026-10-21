@@ -11,6 +11,7 @@ export function echapper(valeur: unknown): string {
 const TRACES = {
   prospects: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   recherches: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  cibles: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   telecharger: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   retour: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
@@ -199,6 +200,11 @@ dl > :nth-last-child(-n+2) { border-bottom: 0; }
 .formulaire { display: grid; gap: 18px; }
 .formulaire .ligne { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
+input.court { width: 72px; }
+table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
+.actions-ligne { text-align: right; white-space: nowrap; }
+.actions-ligne .btn + .btn { margin-left: 6px; }
+.couverture { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 1000px) {
   .deux-colonnes { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -221,7 +227,7 @@ dl > :nth-last-child(-n+2) { border-bottom: 0; }
 }
 `;
 
-export type Rubrique = 'prospects' | 'recherches';
+export type Rubrique = 'prospects' | 'recherches' | 'cibles';
 
 export function page(titre: string, contenu: string, rubrique: Rubrique = 'prospects', tete = ''): Response {
   const lien = (cle: Rubrique, href: string, libelle: string) =>
@@ -236,7 +242,7 @@ export function page(titre: string, contenu: string, rubrique: Rubrique = 'prosp
   <aside class="barre">
     <a href="/" class="marque"><div class="marque-logo">Cb</div><div><strong>Prospection</strong><span>C'est bien beau</span></div></a>
     <div class="nav-titre">Outils</div>
-    <nav class="nav">${lien('prospects', '/', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}</nav>
+    <nav class="nav">${lien('prospects', '/', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}${lien('cibles', '/cibles', 'Cibles')}</nav>
   </aside>
   <main class="contenu">${contenu}</main>
 </div></body></html>`,

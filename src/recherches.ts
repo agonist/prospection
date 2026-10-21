@@ -1,5 +1,5 @@
-import { CIBLES } from '../scripts/cibles.mjs';
 import { lancer } from './apify';
+import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles } from './cibles';
 import { echapper, icone, page } from './html';
 
 const ETATS: Record<string, string> = {
@@ -22,9 +22,16 @@ type Recherche = {
   cree_le: string;
 };
 
-function barre(valeur: number, max: number, texte: string) {
-  const pourcentage = max ? Math.round((valeur / max) * 100) : 0;
-  return `<div class="progression"><div class="piste"><i style="width: ${pourcentage}%"></i></div><span class="discret">${texte}</span></div>`;
+function jour(iso: string) {
+  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+// Les recherches « métier commune » lancées ces 6 derniers mois, avec leur date.
+async function termesRecents(env: Env) {
+  const { results } = await env.DB.prepare('SELECT terme, lance_le FROM termes WHERE lance_le > ?')
+    .bind(new Date(Date.now() - DELAI_TERMES_MS).toISOString())
+    .all<{ terme: string; lance_le: string }>();
+  return new Map(results.map(({ terme, lance_le }) => [terme, lance_le]));
 }
 
 function progression(r: Recherche) {
@@ -51,8 +58,13 @@ function etatTache(dernier: string | undefined, travail: boolean) {
 }
 
 export async function pageRecherches(url: URL, env: Env) {
-  const nomCible = url.searchParams.get('cible') || 'vin';
-  const cible = CIBLES[nomCible as keyof typeof CIBLES] ?? CIBLES.vin;
+  const cibles = await chargerCibles(env);
+  const cible = cibles[url.searchParams.get('cible') ?? ''] ?? Object.values(cibles)[0];
+  const nomCible = cible?.cle ?? '';
+  const faits = await termesRecents(env);
+  const communesFaites = (cible?.communes ?? []).map((commune) => ({ commune, le: faits.get(normaliserTerme(`${cible.recherche} ${commune}`)) }));
+  const restantes = communesFaites.filter(({ le }) => !le).map(({ commune }) => commune);
+  const dejaFaites = communesFaites.filter(({ le }) => le);
   const [recherches, enAnalyse, passage, journal] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM recherches ORDER BY id DESC LIMIT 30'),
     env.DB.prepare("SELECT COUNT(*) AS n FROM prospects WHERE statut = 'a_analyser'"),
@@ -64,9 +76,6 @@ export async function pageRecherches(url: URL, env: Env) {
   const enCours = (recherches.results as Recherche[]).some((r) => r.statut === 'en_cours' || r.statut === 'import');
   const travail = enCours || attente > 0;
 
-  const optionsCibles = Object.entries(CIBLES)
-    .map(([cle, { nom }]) => `<option value="${cle}" ${cle === nomCible ? 'selected' : ''}>${echapper(nom)}</option>`)
-    .join('');
   const etat = (r: Recherche) => {
     const classe = { en_cours: 'a_analyser', import: 'a_analyser', terminee: 'nouveau', echec: 'desinscrit' }[r.statut] ?? '';
     return `<span class="badge badge-${classe}">${echapper(ETATS[r.statut] ?? r.statut)}</span>`;
@@ -76,7 +85,7 @@ export async function pageRecherches(url: URL, env: Env) {
       const termes = JSON.parse(r.termes) as string[];
       return `<tr>
         <td class="discret">${new Date(r.cree_le).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</td>
-        <td class="nom">${echapper(CIBLES[r.cible as keyof typeof CIBLES]?.nom ?? r.cible)}</td>
+        <td class="nom">${echapper(cibles[r.cible]?.nom ?? r.cible)}</td>
         <td class="tronque">${echapper(termes.slice(0, 3).join(', '))}${termes.length > 3 ? ` <span class="discret">et ${termes.length - 3} autres</span>` : ''}</td>
         <td>${etat(r)}${r.erreur ? `<div class="erreur discret">${echapper(r.erreur)}</div>` : ''}</td>
         <td>${progression(r)}</td>
@@ -99,17 +108,24 @@ export async function pageRecherches(url: URL, env: Env) {
         <div class="carte-contenu formulaire">
           <div class="ligne">
             <div class="champ"><label for="cible">Cible</label>
-              <select id="cible" name="cible" onchange="location.search = '?cible=' + this.value">${optionsCibles}</select></div>
+              <select id="cible" name="cible" onchange="location.search = '?cible=' + this.value">${optionsCibles(cibles, nomCible)}</select></div>
             <div class="champ"><label for="metier">Métier recherché</label>
-              <input id="metier" type="text" name="metier" value="${echapper(cible.recherche)}" required></div>
+              <input id="metier" type="text" name="metier" value="${echapper(cible?.recherche ?? '')}" required></div>
           </div>
           <div class="champ"><label for="communes">Communes</label>
-            <textarea id="communes" name="communes" rows="9" required>${echapper(cible.communes.join('\n'))}</textarea>
-            <span class="aide">Une par ligne. La liste est préremplie selon la cible.</span></div>
+            <textarea id="communes" name="communes" rows="9" required>${echapper(restantes.join('\n'))}</textarea>
+            <span class="aide">Une par ligne. Préremplie avec les communes de la cible pas encore couvertes (<a href="/cibles?cle=${encodeURIComponent(nomCible)}">modifier la cible</a>).</span>
+            ${
+              dejaFaites.length
+                ? `<span class="aide">Déjà faites ces 6 derniers mois, ${dejaFaites.length} sur ${communesFaites.length} : ${dejaFaites.map(({ commune, le }) => `${echapper(commune)} (${jour(le!)})`).join(', ')}.</span>`
+                : ''
+            }</div>
           <div class="champ"><label for="max">Fiches maximum par commune</label>
             <input id="max" type="number" name="max" value="30" min="1" max="200" required></div>
           <label class="case"><input type="checkbox" name="contacts" value="1" checked>
             <span><strong>Extraire les emails avec Apify</strong>Option payante « contacts enrichment », quelques dollars pour 1 000 fiches.</span></label>
+          <label class="case"><input type="checkbox" name="forcer" value="1">
+            <span><strong>Refaire les recherches déjà faites</strong>Par défaut, une recherche lancée il y a moins de 6 mois est sautée pour ne pas payer deux fois.</span></label>
           <div><button type="submit" class="btn">${icone('recherches')}Lancer la recherche</button></div>
         </div>
       </form>
@@ -137,7 +153,8 @@ export async function pageRecherches(url: URL, env: Env) {
 export async function lancerRecherche(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const nomCible = String(donnees.get('cible') ?? '');
-  if (!(nomCible in CIBLES)) return new Response('Cible inconnue', { status: 400 });
+  const cibles = await chargerCibles(env);
+  if (!(nomCible in cibles)) return new Response('Cible inconnue', { status: 400 });
   const metier = String(donnees.get('metier') ?? '').trim();
   const communes = String(donnees.get('communes') ?? '')
     .split('\n')
@@ -146,7 +163,18 @@ export async function lancerRecherche(requete: Request, env: Env) {
   const max = Math.min(200, Math.max(1, Number(donnees.get('max')) || 30));
   if (!metier || !communes.length) return new Response('Métier et communes obligatoires', { status: 400 });
 
-  const termes = [...new Set(communes.map((commune) => `${metier} ${commune}`))];
+  const demandes = [...new Map(communes.map((commune) => [normaliserTerme(`${metier} ${commune}`), `${metier} ${commune}`])).entries()];
+  const faits = donnees.get('forcer') === '1' ? new Map<string, string>() : await termesRecents(env);
+  const termes = demandes.filter(([cle]) => !faits.has(cle)).map(([, terme]) => terme);
+  const sautes = demandes.length - termes.length;
+  if (!termes.length) {
+    return page(
+      'Déjà fait',
+      `<a class="retour" href="/recherches?cible=${encodeURIComponent(nomCible)}">${icone('retour')}Recherches</a>
+      <div class="alerte attention"><p>Ces ${demandes.length} recherches ont toutes été faites il y a moins de 6 mois, rien n’a été lancé. Ajoute d’autres communes, change de métier, ou coche « Refaire les recherches déjà faites ».</p></div>`,
+      'recherches',
+    );
+  }
   try {
     const contacts = donnees.get('contacts') === '1';
     const { runId, datasetId } = await lancer(env, termes, max, contacts);
@@ -154,9 +182,18 @@ export async function lancerRecherche(requete: Request, env: Env) {
     const { meta } = await env.DB.prepare('INSERT INTO recherches (cible, termes, run_id, dataset_id, cree_le) VALUES (?, ?, ?, ?, ?)')
       .bind(nomCible, JSON.stringify(termes), runId, datasetId, maintenant)
       .run();
-    await env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)')
-      .bind(maintenant, 'info', `Recherche n°${meta.last_row_id} lancée sur Apify : ${termes.length} recherches, ${max} fiches maximum chacune${contacts ? ', avec extraction des emails' : ''}.`, meta.last_row_id)
-      .run();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)').bind(
+        maintenant,
+        'info',
+        `Recherche n°${meta.last_row_id} lancée sur Apify : ${termes.length} recherches, ${max} fiches maximum chacune${contacts ? ', avec extraction des emails' : ''}${sautes ? `. ${sautes} déjà faites il y a moins de 6 mois, sautées` : ''}.`,
+        meta.last_row_id,
+      ),
+      env.DB.prepare(
+        `INSERT INTO termes (terme, cible, recherche_id, lance_le) SELECT value, ?, ?, ? FROM json_each(?) WHERE true
+          ON CONFLICT (terme) DO UPDATE SET cible = excluded.cible, recherche_id = excluded.recherche_id, lance_le = excluded.lance_le`,
+      ).bind(nomCible, meta.last_row_id, maintenant, JSON.stringify(termes.map(normaliserTerme))),
+    ]);
   } catch (erreur) {
     return page(
       'Erreur',

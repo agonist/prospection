@@ -68,7 +68,7 @@ async function attendre(url) {
 
 test('une recherche lancée depuis l’admin finit en prospects analysés', { timeout: 120_000 }, async () => {
   const fiches = [
-    { placeId: 'A', title: 'Domaine A', city: 'Barr', searchString: 'domaine viticole Barr' },
+    { placeId: 'A', title: 'Domaine A', city: 'Barr', categoryName: 'Producteur de vin', searchString: 'domaine viticole Barr' },
     { placeId: 'B', title: 'Domaine B', city: 'Andlau', emails: ['contact@domaine-b.fr'] },
     { placeId: 'C', title: 'Cave coopérative de Barr', city: 'Barr' },
   ];
@@ -119,14 +119,43 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Domaine B'), /badge-nouveau[\s\S]*seulement une fiche Google[\s\S]*contact@domaine-b\.fr/);
     assert.match(ligne('Cave coopérative de Barr'), /badge-hors_cible/);
 
+    // La même recherche n'est pas relancée tant qu'on ne force pas.
+    const rejouee = await fetch(`${admin}/recherches`, {
+      method: 'POST',
+      body: new URLSearchParams({ cible: 'vin', metier: 'Domaine viticole', communes: 'barr\nAndlau', max: '20' }),
+      redirect: 'manual',
+    });
+    assert.equal(rejouee.status, 200);
+    assert.match(await rejouee.text(), /ont toutes été faites il y a moins de 6 mois/);
+    assert.equal(apifyFinal.appels.runs.length, 1);
+    const formulaire = await (await fetch(`${admin}/recherches?cible=vin`)).text();
+    assert.match(formulaire, /Déjà faites ces 6 derniers mois, 2 sur 24 : Barr/);
+    assert.doesNotMatch(formulaire.match(/<textarea id="communes"[^>]*>([^<]*)/)[1], /Barr|Andlau/);
+
+    // Cibles modifiables, et filtre par catégorie Google.
+    const creation = await fetch(`${admin}/cibles`, {
+      method: 'POST',
+      body: new URLSearchParams({ cle: '', nom: 'Restaurants', recherche: 'restaurant', communes: 'Colmar\nColmar', exclure: 'mcdo\nkfc', ordre_pasDeSite: '1', ordre_pasMobile: '2' }),
+      redirect: 'manual',
+    });
+    assert.equal(creation.headers.get('location'), `${admin}/cibles?cle=restaurants`);
+    const pageCibles = await (await fetch(`${admin}/cibles?cle=restaurants`)).text();
+    assert.match(pageCibles, /0 \/ 1 communes/);
+    assert.match(pageCibles, /mcdo\nkfc/);
+    assert.match(await (await fetch(`${admin}/recherches?cible=restaurants`)).text(), /value="restaurant"/);
+    const parCategorie = await (await fetch(`${admin}/?categorie=Producteur+de+vin`)).text();
+    assert.match(parCategorie, /Domaine A/);
+    assert.doesNotMatch(parCategorie, /Domaine B/);
+
     // Une nouvelle recherche sur les mêmes communes ne touche pas un statut posé à la main.
     await fetch(`${admin}/p/B`, { method: 'POST', body: new URLSearchParams({ statut: 'client', note: 'Signé' }), redirect: 'manual' });
     fiches[1].phone = '03 88 00 00 00';
     await fetch(`${admin}/recherches`, {
       method: 'POST',
-      body: new URLSearchParams({ cible: 'vin', metier: 'domaine viticole', communes: 'Barr\nAndlau', max: '20' }),
+      body: new URLSearchParams({ cible: 'vin', metier: 'domaine viticole', communes: 'Barr\nAndlau', max: '20', forcer: '1' }),
       redirect: 'manual',
     });
+    assert.equal(apifyFinal.appels.runs.length, 2);
     await passage();
     const ficheB = await (await fetch(`${admin}/p/B`)).text();
     assert.match(ficheB, /badge-client/);

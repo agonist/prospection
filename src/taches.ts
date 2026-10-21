@@ -2,11 +2,11 @@
 // fiches par petits lots, puis analyse les sites des prospects importés.
 // Les lots restent petits pour tenir dans les limites d'une exécution de Worker
 // (50 requêtes D1 et 50 requêtes sortantes sur le plan gratuit).
-import { CIBLES } from '../scripts/cibles.mjs';
 import { STATUTS_AUTOMATIQUES, identifiant, statutApresAnalyse } from '../scripts/base.mjs';
 import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
+import { type Cible, chargerCibles } from './cibles';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -63,12 +63,11 @@ const UPSERT = `INSERT INTO prospects
     statut_le = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) AND prospects.statut <> excluded.statut THEN excluded.statut_le ELSE prospects.statut_le END,
     statut = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) THEN excluded.statut ELSE prospects.statut END`;
 
-export function ligneImport(fiche: Record<string, unknown>, nomCible: string, maintenant: string) {
-  const cible = CIBLES[nomCible as keyof typeof CIBLES];
+export function ligneImport(fiche: Record<string, unknown>, nomCible: string, cible: Cible | undefined, maintenant: string) {
   const prospect = normaliser(fiche);
   if (!prospect.nom) return null;
-  if (!prospect.recherche) prospect.recherche = `${cible.recherche} ${prospect.ville}`.trim();
-  const raison = exclusion(prospect, cible);
+  if (!prospect.recherche) prospect.recherche = `${cible?.recherche ?? ''} ${prospect.ville}`.trim();
+  const raison = cible ? exclusion(prospect, cible) : null;
   return [
     identifiant(prospect, cleDoublon(prospect)),
     nomCible,
@@ -90,7 +89,7 @@ export function ligneImport(fiche: Record<string, unknown>, nomCible: string, ma
 }
 
 // Renvoie true si la recherche a consommé ce passage (un lot importé).
-async function avancer(env: Env, recherche: Recherche, maintenant: string): Promise<boolean> {
+async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Cible>, maintenant: string): Promise<boolean> {
   if (recherche.statut === 'en_cours') {
     const [statut, trouvees] = await Promise.all([etat(env, recherche.run_id), compte(env, recherche.dataset_id)]);
     const notes = [];
@@ -108,6 +107,8 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
           maintenant,
           recherche.id,
         ),
+        // Une extraction échouée pourra être relancée sans attendre.
+        env.DB.prepare('DELETE FROM termes WHERE recherche_id = ?').bind(recherche.id),
       ]);
       return false;
     }
@@ -119,7 +120,7 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
   }
 
   const lot = await fiches(env, recherche.dataset_id, recherche.importees, taille(env.IMPORT_PAR_PASSAGE, IMPORT_PAR_PASSAGE));
-  const lignes = lot.fiches.map((fiche) => ligneImport(fiche, recherche.cible, maintenant)).filter((ligne) => ligne !== null);
+  const lignes = lot.fiches.map((fiche) => ligneImport(fiche, recherche.cible, cibles[recherche.cible], maintenant)).filter((ligne) => ligne !== null);
   const importees = recherche.importees + lot.fiches.length;
   const fini = lot.fiches.length === 0 || importees >= lot.total;
   const horsCible = lignes.filter((ligne) => ligne[13] === 'hors_cible').length;
@@ -144,14 +145,14 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
 
 type AAnalyser = { id: string; cible: string; nom: string; site: string; emails_fiche: string };
 
-async function analyserLot(env: Env, maintenant: string) {
+async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: string) {
   const { results } = await env.DB.prepare("SELECT id, cible, nom, site, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
 
   const analyses = await Promise.all(
-    results.map((p) => analyser({ site: p.site, emails: JSON.parse(p.emails_fiche || '[]') }, CIBLES[p.cible as keyof typeof CIBLES])),
+    results.map((p) => analyser({ site: p.site, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] })),
   );
   const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', plus_tard: 'plus tard' };
   await env.DB.batch(
@@ -187,10 +188,11 @@ export async function tache(env: Env) {
     env.DB.prepare('DELETE FROM journal WHERE le < ?').bind(semaine),
   ]);
 
+  const cibles = await chargerCibles(env);
   const recherche = await env.DB.prepare("SELECT * FROM recherches WHERE statut IN ('import', 'en_cours') ORDER BY statut = 'en_cours', id LIMIT 1").first<Recherche>();
   if (recherche) {
     try {
-      if (await avancer(env, recherche, maintenant)) return;
+      if (await avancer(env, recherche, cibles, maintenant)) return;
     } catch (erreur) {
       await env.DB.batch([
         env.DB.prepare('UPDATE recherches SET erreur = ? WHERE id = ?').bind(String(erreur).slice(0, 500), recherche.id),
@@ -199,7 +201,7 @@ export async function tache(env: Env) {
     }
   }
   try {
-    await analyserLot(env, maintenant);
+    await analyserLot(env, cibles, maintenant);
   } catch (erreur) {
     await noter(env, 'erreur', `Analyse des sites : ${String(erreur).slice(0, 300)}`).run();
   }

@@ -1,5 +1,5 @@
 import { utilisateur } from './access';
-import { CIBLES } from '../scripts/cibles.mjs';
+import { chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
 import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
@@ -50,13 +50,14 @@ type Prospect = {
   contacte_le: string | null;
 };
 
-type Filtres = { cible: string; statut: string; ville: string; q: string };
+type Filtres = { cible: string; statut: string; ville: string; categorie: string; q: string };
 
 function lireFiltres(url: URL): Filtres {
   return {
     cible: url.searchParams.get('cible') ?? '',
     statut: url.searchParams.get('statut') ?? '',
     ville: url.searchParams.get('ville') ?? '',
+    categorie: url.searchParams.get('categorie') ?? '',
     q: url.searchParams.get('q') ?? '',
   };
 }
@@ -75,6 +76,10 @@ function clauses(filtres: Filtres, sansStatut = false) {
   if (filtres.ville) {
     conditions.push('ville = ?');
     valeurs.push(filtres.ville);
+  }
+  if (filtres.categorie) {
+    conditions.push('categorie = ?');
+    valeurs.push(filtres.categorie);
   }
   if (filtres.q) {
     conditions.push('(nom LIKE ? OR email LIKE ? OR site LIKE ? OR note LIKE ?)');
@@ -105,11 +110,14 @@ async function liste(url: URL, env: Env) {
   const { where, valeurs } = clauses(filtres);
   const sansStatut = clauses(filtres, true);
 
-  const [lignes, total, parStatut, villes, aPurger, travail] = await env.DB.batch([
+  const cibles = await chargerCibles(env);
+  const parCible = filtres.cible ? 'WHERE cible = ?' : '';
+  const [lignes, total, parStatut, villes, categories, aPurger, travail] = await env.DB.batch([
     env.DB.prepare(`SELECT * FROM prospects ${where} ORDER BY vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${where}`).bind(...valeurs),
     env.DB.prepare(`SELECT statut, COUNT(*) AS n FROM prospects ${sansStatut.where} GROUP BY statut`).bind(...sansStatut.valeurs),
     env.DB.prepare(`SELECT ville, COUNT(*) AS n FROM prospects ${filtres.cible ? 'WHERE cible = ?' : ''} GROUP BY ville ORDER BY ville`).bind(...(filtres.cible ? [filtres.cible] : [])),
+    env.DB.prepare(`SELECT categorie, COUNT(*) AS n FROM prospects ${parCible} GROUP BY categorie ORDER BY n DESC LIMIT 80`).bind(...(filtres.cible ? [filtres.cible] : [])),
     env.DB.prepare(
       `SELECT COUNT(*) AS n FROM prospects WHERE statut IN (${PURGEABLES.map(() => '?').join(', ')}) AND statut_le < ? AND vu_le < ?`,
     ).bind(...PURGEABLES, new Date(Date.now() - TROIS_ANS_MS).toISOString(), new Date(Date.now() - TROIS_ANS_MS).toISOString()),
@@ -138,8 +146,9 @@ async function liste(url: URL, env: Env) {
   const stat = (statut: string, libelle: string) =>
     `<a class="carte stat" href="${lienFiltres({ ...filtres, statut })}"><span>${libelle}</span><strong>${compteStatuts[statut] ?? 0}</strong></a>`;
 
-  const optionsCibles = Object.entries(CIBLES)
-    .map(([cle, { nom }]) => `<option value="${cle}" ${filtres.cible === cle ? 'selected' : ''}>${echapper(nom)}</option>`)
+  const optionsCategories = (categories.results as { categorie: string; n: number }[])
+    .filter(({ categorie }) => categorie)
+    .map(({ categorie, n }) => `<option value="${echapper(categorie)}" ${filtres.categorie === categorie ? 'selected' : ''}>${echapper(categorie)} (${n})</option>`)
     .join('');
   const optionsVilles = (villes.results as { ville: string; n: number }[])
     .filter(({ ville }) => ville)
@@ -149,7 +158,7 @@ async function liste(url: URL, env: Env) {
   const rangees = prospects
     .map(
       (p) => `<tr>
-        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible)} · ${echapper(p.ville)}</div></td>
+        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
         <td>${badge(p.statut)}</td>
         <td class="tronque">${echapper(p.constat || p.raison)}</td>
         <td>${p.email ? echapper(p.email) : '<span class="discret">aucun</span>'}</td>
@@ -186,7 +195,8 @@ async function liste(url: URL, env: Env) {
       ${stat('nouveau', 'Prêts à contacter')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}${stat('client', 'Clients')}
     </section>
     <form class="outils" method="get" action="/">
-      <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles}</select>
+      <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
+      <select name="categorie" onchange="this.form.submit()"><option value="">Toutes les catégories</option>${optionsCategories}</select>
       <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
       <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
       <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…">
@@ -214,7 +224,7 @@ async function liste(url: URL, env: Env) {
 }
 
 async function fiche(id: string, env: Env, enregistre: boolean) {
-  const p = await env.DB.prepare('SELECT * FROM prospects WHERE id = ?').bind(id).first<Prospect>();
+  const [p, cibles] = await Promise.all([env.DB.prepare('SELECT * FROM prospects WHERE id = ?').bind(id).first<Prospect>(), chargerCibles(env)]);
   if (!p) return new Response('Prospect introuvable', { status: 404 });
   const signaux = Object.entries(JSON.parse(p.signaux || '{}') as Record<string, unknown>)
     .filter(([, valeur]) => valeur)
@@ -231,7 +241,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
     p.nom,
     `<a class="retour" href="/?cible=${encodeURIComponent(p.cible)}">${icone('retour')}Prospects</a>
     <header class="page-entete">
-      <div><h1>${echapper(p.nom)}</h1><p class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)} · ${echapper(CIBLES[p.cible as keyof typeof CIBLES]?.nom ?? p.cible)}</p></div>
+      <div><h1>${echapper(p.nom)}</h1><p class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)} · ${echapper(cibles[p.cible]?.nom ?? p.cible)}</p></div>
       ${badge(p.statut)}
     </header>
     ${enregistre ? `<div class="alerte succes"><p>Enregistré.</p></div>` : ''}
@@ -309,6 +319,7 @@ async function exporter(requete: Request, env: Env) {
     cible: String(donnees.get('cible') ?? ''),
     statut: 'nouveau',
     ville: String(donnees.get('ville') ?? ''),
+    categorie: String(donnees.get('categorie') ?? ''),
     q: String(donnees.get('q') ?? ''),
   };
   const { where, valeurs } = clauses(filtres);
@@ -376,6 +387,8 @@ export default {
     if (url.pathname === '/' && requete.method === 'GET') return liste(url, env);
     if (url.pathname === '/recherches' && requete.method === 'GET') return pageRecherches(url, env);
     if (url.pathname === '/recherches' && requete.method === 'POST') return lancerRecherche(requete, env);
+    if (url.pathname === '/cibles' && requete.method === 'GET') return pageCibles(url, env);
+    if (url.pathname === '/cibles' && requete.method === 'POST') return enregistrerCible(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
     if (url.pathname === '/purger' && requete.method === 'POST') return purger(requete, env);
     return new Response('Page introuvable', { status: 404 });

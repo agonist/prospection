@@ -57,9 +57,15 @@ Sur le plan Workers gratuit, chaque passage de la tâche est limité à 10 ms de
 
 ## Lancer une recherche
 
-Dans l'admin, **Nouvelle recherche** : la cible préremplit le métier et une liste de communes (dans `scripts/cibles.mjs`). Chaque ligne devient une recherche Google Maps « métier commune », dont le texte est réutilisé tel quel dans l'email (colonne `recherche`). La page des recherches montre l'avancement.
+Dans l'admin, **Nouvelle recherche** : la cible préremplit le métier et les communes qu'elle n'a pas encore couvertes. Une recherche « métier commune » lancée il y a moins de 6 mois est sautée pour ne pas payer deux fois l'extraction, sauf si on coche « Refaire les recherches déjà faites ». Chaque ligne devient une recherche Google Maps « métier commune », dont le texte est réutilisé tel quel dans l'email (colonne `recherche`). La page des recherches montre l'avancement.
 
 L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis et les photos sont désactivés. La case « Extraire les emails avec Apify » (cochée par défaut) active l'option payante qui récupère les emails des sites pendant l'extraction ; l'analyse repasse de toute façon sur chaque site pour le constat et pour les emails qu'Apify aurait manqués.
+
+## Les cibles
+
+La page **Cibles** liste les métiers prospectés, avec le nombre de prospects et les communes déjà couvertes. On y crée une nouvelle cible (restaurants, avocats…) et on modifie celles qui existent : métier cherché sur Google Maps, communes, mots qui excluent une fiche (coopérative, franchise…) et ordre des constats. `scripts/cibles.mjs` ne sert plus qu'aux valeurs de départ, copiées en base au premier lancement.
+
+La liste des prospects se filtre aussi par catégorie Google (« Producteur de vin », « Naturopathe »…).
 
 ## Envoyer dans Smartlead
 
