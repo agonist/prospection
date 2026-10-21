@@ -19,7 +19,7 @@ if (!cle) {
 
 execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local'], { cwd: racine, stdio: ['ignore', 'ignore', 'inherit'] });
 
-const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--test-scheduled'], { cwd: racine, stdio: ['ignore', 'pipe', 'inherit'] });
+const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--test-scheduled', '--var', 'IMPORT_PAR_PASSAGE:200', '--var', 'ANALYSES_PAR_PASSAGE:30'], { cwd: racine, stdio: ['ignore', 'pipe', 'inherit'] });
 
 // N'affiche que le journal de la tâche, pas le bruit de wrangler.
 let reste = '';
@@ -44,10 +44,18 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Attend que le Worker réponde, puis déclenche la tâche toutes les 10 secondes :
-// en local, pas de limite Cloudflare, autant aller vite.
+// Attend que le Worker réponde, puis enchaîne les passages de la tâche sans
+// pause (2 s quand il n'y a rien à faire) : en local, pas de limite Cloudflare.
 async function passage() {
+  const debut = Date.now();
   await fetch(`http://localhost:${PORT}/__scheduled?cron=*+*+*+*+*`).catch(() => {});
+  return Date.now() - debut;
+}
+async function boucle() {
+  for (;;) {
+    const duree = await passage();
+    if (duree < 1_000) await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
 }
 const attente = setInterval(async () => {
   try {
@@ -58,6 +66,5 @@ const attente = setInterval(async () => {
   clearInterval(attente);
   console.log(`Admin prête sur http://localhost:${PORT} (Ctrl+C pour arrêter).`);
   console.log('Le journal de la tâche s’affiche ici, et sur la page Recherches de l’admin.');
-  passage();
-  setInterval(passage, 10_000);
+  boucle();
 }, 2_000);

@@ -18,7 +18,10 @@
     // « Application Audience (AUD) Tag » de l'application Access qui protège ce Worker.
     "ACCESS_AUD": "",
     "ACCESS_DESACTIVE": "0",
-    "APIFY_API": "https://api.apify.com"
+    "APIFY_API": "https://api.apify.com",
+    // Taille des lots de la tâche planifiée (pnpm local les agrandit).
+    "IMPORT_PAR_PASSAGE": "25",
+    "ANALYSES_PAR_PASSAGE": "8"
   },
   // Suit les recherches Apify et analyse les sites, une minute à la fois.
   "triggers": { "crons": ["* * * * *"] },

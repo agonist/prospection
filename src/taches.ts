@@ -8,8 +8,15 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
 
+// En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
+// n'y a pas de limite : les variables du même nom les agrandissent.
 const IMPORT_PAR_PASSAGE = 25;
 const ANALYSES_PAR_PASSAGE = 8;
+
+function taille(valeur: unknown, defaut: number) {
+  const nombre = Number(valeur);
+  return Number.isInteger(nombre) && nombre > 0 ? nombre : defaut;
+}
 const ECHECS = ['FAILED', 'ABORTED', 'TIMED-OUT', 'TIMED_OUT'];
 
 type Recherche = {
@@ -111,7 +118,7 @@ async function avancer(env: Env, recherche: Recherche, maintenant: string): Prom
     if (statut !== 'SUCCEEDED') return false;
   }
 
-  const lot = await fiches(env, recherche.dataset_id, recherche.importees, IMPORT_PAR_PASSAGE);
+  const lot = await fiches(env, recherche.dataset_id, recherche.importees, taille(env.IMPORT_PAR_PASSAGE, IMPORT_PAR_PASSAGE));
   const lignes = lot.fiches.map((fiche) => ligneImport(fiche, recherche.cible, maintenant)).filter((ligne) => ligne !== null);
   const importees = recherche.importees + lot.fiches.length;
   const fini = lot.fiches.length === 0 || importees >= lot.total;
@@ -139,7 +146,7 @@ type AAnalyser = { id: string; cible: string; nom: string; site: string; emails_
 
 async function analyserLot(env: Env, maintenant: string) {
   const { results } = await env.DB.prepare("SELECT id, cible, nom, site, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
-    .bind(ANALYSES_PAR_PASSAGE)
+    .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
 
