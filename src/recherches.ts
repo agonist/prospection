@@ -224,5 +224,5 @@ export async function lancerRecherche(requete: Request, env: Env) {
       'recherches',
     );
   }
-  return Response.redirect(new URL('/recherches', requete.url).toString(), 303);
+  return Response.redirect(new URL(`/recherches?message=${encodeURIComponent(`Recherche lancée : ${termes.length} recherches sur Google Maps`)}`, requete.url).toString(), 303);
 }

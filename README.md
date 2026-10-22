@@ -8,6 +8,10 @@ Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé pa
 2. Une tâche planifiée (toutes les minutes en ligne, toutes les 10 secondes avec `pnpm local`) récupère les fiches, les enregistre, puis visite chaque site pour trouver une adresse générique et un constat (environ 8 sites par minute).
 3. Tu relis les prospects prêts, puis tu exportes le CSV pour Smartlead.
 
+## Le tableau de bord
+
+La page d'accueil montre ce qu'il y a à faire aujourd'hui (prêts pour Smartlead, à écrire, à appeler, à vérifier), l'entonnoir des fiches trouvées jusqu'aux clients, l'activité des 14 derniers jours, les chiffres par cible et les avis de Claude. La liste complète est sous **Prospects**. La touche `/` place le curseur dans la recherche.
+
 ## Claude juge chaque site
 
 Avec une clé API Anthropic (`ANTHROPIC_API_KEY` dans `.dev.vars`, à créer sur [console.anthropic.com](https://console.anthropic.com) → API Keys), l'analyse envoie à Claude le texte visible de la page d'accueil, ses liens et quelques indices techniques (Wix, vieux WordPress, mise en page en tableaux…). Claude rend un verdict (site bon, moyen, faible ou hors cible), une note sur 10 et le constat de l'email, écrit à partir de ce qu'il voit sur la page.

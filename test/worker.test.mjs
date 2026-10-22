@@ -145,7 +145,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(suivi, /6 \/ 6 fiches importées/);
     assert.match(suivi, /Domaine B : prêt à contacter/);
 
-    const liste = await (await fetch(`${admin}/?cible=vin`)).text();
+    const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
     // Claude juge les sites lus : son constat remplace celui des règles, un site déjà bon part en « plus tard ».
     assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10[\s\S]*contact@127\.0\.0\.1/);
@@ -164,7 +164,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Domaine%20D[^"]*j&#39;ai%20remarqu%C3%A9%20que%20vous%20n&#39;avez%20pas%20encore%20de%20site/);
     // Pas d'email mais un téléphone : à appeler.
     assert.match(ligne('Domaine E'), /badge-a_appeler[\s\S]*href="tel:03 89 00 00 00"/);
-    assert.match(await (await fetch(`${admin}/?statut=a_appeler`)).text(), /pas d’email trouvé<em>1<\/em>|Réanalyser/);
+    assert.match(await (await fetch(`${admin}/prospects?statut=a_appeler`)).text(), /pas d’email trouvé<em>1<\/em>|Réanalyser/);
 
     // Mode traitement : une fiche à la fois, « Pas de réponse » note l'appel et passe à la suivante.
     const traitement = await (await fetch(`${admin}/traiter?statut=a_appeler`)).text();
@@ -181,8 +181,8 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(await (await fetch(`${admin}/traiter?statut=a_ecrire`)).text(), /<h1>Domaine D<\/h1>[\s\S]*href="mailto:claire\.martin@gmail\.com/);
 
     // Changement de statut groupé depuis la liste.
-    const groupe = await fetch(`${admin}/lot`, { method: 'POST', body: new URLSearchParams([['ids', 'C'], ['statut', 'pas_interesse'], ['retour', '/?statut=hors_cible']]), redirect: 'manual' });
-    assert.equal(groupe.headers.get('location'), `${admin}/?statut=hors_cible`);
+    const groupe = await fetch(`${admin}/lot`, { method: 'POST', body: new URLSearchParams([['ids', 'C'], ['statut', 'pas_interesse'], ['retour', '/prospects?statut=hors_cible']]), redirect: 'manual' });
+    assert.equal(groupe.headers.get('location'), `${admin}/prospects?statut=hors_cible&message=1+fiche+pass%C3%A9e+en+%C2%AB+Pas+int%C3%A9ress%C3%A9+%C2%BB`);
     assert.match(await (await fetch(`${admin}/p/C`)).text(), /badge-pas_interesse/);
 
     // « Écrire » passe la fiche en campagne.
@@ -194,6 +194,14 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_analyser/);
     await passage();
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_appeler/);
+
+    // Tableau de bord en page d'accueil ; les anciens liens filtrés mènent à la liste.
+    const accueil = await (await fetch(admin)).text();
+    assert.match(accueil, /<h1>Tableau de bord<\/h1>/);
+    assert.match(accueil, /<strong>1<\/strong><span>À appeler<\/span>/);
+    assert.match(accueil, /Trouvés sur Google Maps/);
+    const ancien = await fetch(`${admin}/?statut=a_appeler`, { redirect: 'manual' });
+    assert.equal(ancien.headers.get('location'), `${admin}/prospects?statut=a_appeler`);
 
     // La même recherche n'est pas relancée tant qu'on ne force pas.
     const rejouee = await fetch(`${admin}/recherches`, {
@@ -216,12 +224,12 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
       body: new URLSearchParams({ cle: '', nom: 'Restaurants', metiers: 'restaurant\npizzeria', communes: 'Colmar\nColmar', exclure: 'mcdo\nkfc', ordre_pasDeSite: '1', ordre_pasMobile: '2' }),
       redirect: 'manual',
     });
-    assert.equal(creation.headers.get('location'), `${admin}/cibles?cle=restaurants`);
+    assert.match(creation.headers.get('location'), /\/cibles\?cle=restaurants&message=/);
     const pageCibles = await (await fetch(`${admin}/cibles?cle=restaurants`)).text();
     assert.match(pageCibles, /0 \/ 2 recherches/);
     assert.match(pageCibles, /mcdo\nkfc/);
     assert.match(await (await fetch(`${admin}/recherches?cible=restaurants`)).text(), />restaurant\npizzeria</);
-    const parCategorie = await (await fetch(`${admin}/?categorie=Producteur+de+vin`)).text();
+    const parCategorie = await (await fetch(`${admin}/prospects?categorie=Producteur+de+vin`)).text();
     assert.match(parCategorie, /Domaine A/);
     assert.doesNotMatch(parCategorie, /Domaine B/);
 

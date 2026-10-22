@@ -113,7 +113,12 @@ export function lienFiltres(filtres: Partial<Filtres>, extra: Record<string, str
   const params = new URLSearchParams();
   for (const [cle, valeur] of Object.entries({ ...filtres, ...extra })) if (valeur) params.set(cle, valeur);
   const texte = params.toString();
-  return texte ? `/?${texte}` : '/';
+  return texte ? `/prospects?${texte}` : '/prospects';
+}
+
+// Les filtres en paramètres d'adresse, pour une autre page (le mode traitement).
+export function requeteFiltres(filtres: Partial<Filtres>) {
+  return lienFiltres(filtres).split('?')[1] ?? '';
 }
 
 export function badge(statut: string) {

@@ -145,7 +145,7 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
         <td><a class="nom" href="/cibles?cle=${encodeURIComponent(c.cle)}">${echapper(c.nom)}</a><div class="discret tronque">${echapper(c.metiers.join(', '))}</div></td>
         <td>${n?.n ?? 0}<div class="discret">${n?.prets ?? 0} prêts · ${n?.clients ?? 0} clients</div></td>
         <td>${barre(couvertes, termes.length, `${couvertes} / ${termes.length} recherches`)}<div class="discret">${c.metiers.length} métiers × ${c.communes.length} communes</div></td>
-        <td class="actions-ligne"><a class="btn contour petit" href="/?cible=${encodeURIComponent(c.cle)}">Prospects</a><a class="btn petit" href="/recherches?cible=${encodeURIComponent(c.cle)}">${icone('recherches', 14)}Rechercher</a></td>
+        <td class="actions-ligne"><a class="btn contour petit" href="/prospects?cible=${encodeURIComponent(c.cle)}">Prospects</a><a class="btn petit" href="/recherches?cible=${encodeURIComponent(c.cle)}">${icone('recherches', 14)}Rechercher</a></td>
       </tr>`;
     })
     .join('');
@@ -242,5 +242,5 @@ export async function enregistrerCible(requete: Request, env: Env) {
     .map(({ constat }) => constat);
 
   await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats, modele: modeleEnvoye(donnees.get('modele')) }).run();
-  return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}`, requete.url).toString(), 303);
+  return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}&message=${encodeURIComponent(`Cible « ${nom} » enregistrée`)}`, requete.url).toString(), 303);
 }

@@ -9,6 +9,8 @@ export function echapper(valeur: unknown): string {
 
 // Icônes Lucide (lucide.dev), en ligne pour ne rien charger.
 const TRACES = {
+  tableau: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  valide: '<path d="M20 6 9 17l-5-5"/>',
   prospects: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   recherches: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   jouer: '<polygon points="6 3 20 12 6 21 6 3"/>',
@@ -36,7 +38,7 @@ const STYLE = `
   --attenue: #f4f4f5; --attenue-texte: #71717a; --bord: #e4e4e7; --champ: #e4e4e7;
   --primaire: #18181b; --primaire-texte: #fafafa; --anneau: #a1a1aa;
   --danger: #dc2626; --succes: #16a34a; --attention: #d97706;
-  --rayon: 8px; --barre: #fafafa;
+  --rayon: 8px; --barre: #fafafa; --graphe: #2563eb;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -45,7 +47,7 @@ const STYLE = `
     --attenue: #27272a; --attenue-texte: #a1a1aa; --bord: #27272a; --champ: #3f3f46;
     --primaire: #fafafa; --primaire-texte: #18181b; --anneau: #52525b;
     --danger: #f87171; --succes: #4ade80; --attention: #fbbf24;
-    --barre: #0f0f11;
+    --barre: #0f0f11; --graphe: #3b82f6;
     color-scheme: dark;
   }
 }
@@ -236,13 +238,75 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 .apercu > p { margin: 0; padding: 8px 12px; font-size: 12px; border-top: 1px solid var(--bord); }
 .apercu.vide { padding: 48px 24px; }
 .gros { font-size: 16px; font-weight: 600; }
+/* Tableau de bord */
+.surtitre { margin: 0 0 2px !important; font-size: 13px; font-weight: 500; }
+.pastille { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--attenue-texte); }
+.recherche-globale { position: relative; display: flex; align-items: center; flex: 0 1 340px; }
+.recherche-globale > .icone { position: absolute; left: 12px; color: var(--attenue-texte); pointer-events: none; }
+.recherche-globale input { padding-left: 36px; padding-right: 40px; }
+.recherche-globale kbd { position: absolute; right: 10px; }
+kbd { font: 11px/1.6 "Geist Mono", ui-monospace, monospace; color: var(--attenue-texte); border: 1px solid var(--bord); border-radius: 4px; padding: 0 5px; background: var(--attenue); }
+.a-faire-grille { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.a-faire { padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; transition: border-color .15s, transform .15s; }
+.a-faire:hover { border-color: var(--anneau); }
+.a-faire.vide { background: transparent; box-shadow: none; }
+.a-faire.vide .a-faire-chiffre strong { color: var(--attenue-texte); }
+.a-faire p { margin: 0; color: var(--attenue-texte); font-size: 13px; flex: 1; }
+.a-faire-icone { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--attenue); }
+.a-faire-nouveau { color: var(--succes); background: color-mix(in srgb, var(--succes) 12%, transparent); }
+.a-faire-a_ecrire { color: #0284c7; background: color-mix(in srgb, #0ea5e9 12%, transparent); }
+.a-faire-a_appeler { color: #ea580c; background: color-mix(in srgb, #f97316 12%, transparent); }
+.a-faire-a_verifier { color: var(--attention); background: color-mix(in srgb, var(--attention) 12%, transparent); }
+.a-faire-chiffre strong { display: block; font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.a-faire-chiffre span { font-weight: 500; }
+.a-faire-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
+.tableau-de-bord { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; margin-bottom: 16px; }
+.bloc { margin-bottom: 16px; }
+.bloc .tableau { margin-top: 12px; }
+.bienvenue { margin-bottom: 16px; border-style: dashed; }
+.bienvenue .carte-description { margin-bottom: 16px; }
+.barres { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.barres-texte { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 6px; }
+.barres-texte a { text-decoration: none; }
+.barres-texte a:hover { text-decoration: underline; }
+.barres-texte strong { font-variant-numeric: tabular-nums; font-weight: 600; }
+.barres-texte em { font-style: normal; color: var(--attenue-texte); margin-left: 4px; }
+.barres-piste { height: 8px; border-radius: 4px; background: var(--attenue); overflow: hidden; }
+.barres-piste i { display: block; height: 100%; background: var(--graphe); border-radius: 4px; transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+.activite { display: grid; gap: 24px; }
+.histogramme-entete { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--attenue-texte); margin-bottom: 8px; }
+.histogramme-entete strong { color: var(--texte); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.colonnes { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 2px; height: 96px; align-items: end; border-bottom: 1px solid var(--bord); }
+.colonne { position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; cursor: default; }
+.colonne i { display: block; width: min(100%, 22px); background: var(--graphe); border-radius: 4px 4px 0 0; }
+.colonne:hover i { filter: brightness(1.15); }
+.colonne:hover { background: color-mix(in srgb, var(--attenue) 60%, transparent); border-radius: 4px 4px 0 0; }
+.colonne:hover::after { content: attr(data-info); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--primaire); color: var(--primaire-texte); font-size: 12px; font-weight: 500; padding: 4px 8px; border-radius: 6px; z-index: 2; pointer-events: none; }
+.colonne:first-child:hover::after { left: 0; transform: none; }
+.colonne:last-child:hover::after { left: auto; right: 0; transform: none; }
+.histogramme-axe { display: flex; justify-content: space-between; font-size: 12px; color: var(--attenue-texte); margin-top: 6px; }
+th.chiffre, td.chiffre { text-align: right; font-variant-numeric: tabular-nums; }
+.couverture { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--attenue-texte); font-variant-numeric: tabular-nums; }
+.couverture .piste { width: 80px; height: 6px; border-radius: 999px; background: var(--attenue); overflow: hidden; }
+.couverture .piste i { display: block; height: 100%; background: var(--graphe); border-radius: 999px; }
+
+/* Notification après une action */
+.toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 10px; max-width: min(420px, calc(100vw - 32px)); padding: 12px 16px; border-radius: var(--rayon); border: 1px solid var(--bord); background: var(--carte); color: var(--texte); box-shadow: 0 10px 30px rgb(0 0 0 / .12); font-weight: 500; animation: toast-entree .25s ease-out; transition: opacity .3s, transform .3s; }
+.toast .icone { color: var(--succes); }
+.toast.parti { opacity: 0; transform: translateY(8px); }
+@keyframes toast-entree { from { opacity: 0; transform: translateY(8px); } }
+
 @media (max-width: 1000px) {
+  .a-faire-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tableau-de-bord { grid-template-columns: minmax(0, 1fr); }
   .traiter { grid-template-columns: minmax(0, 1fr); }
   .apercu { position: static; }
   .deux-colonnes { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
+  .a-faire-grille { grid-template-columns: minmax(0, 1fr); }
+  .recherche-globale { flex: 1 1 100%; }
   .app { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .contenu, .carte, .stat { min-width: 0; }
@@ -251,7 +315,9 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
   .barre { position: static; height: auto; flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--bord); padding: 10px 16px; }
   .marque { padding: 0; margin-right: auto; }
   .marque span, .nav-titre { display: none; }
-  .nav { display: flex; gap: 4px; }
+  .barre { flex-wrap: wrap; row-gap: 8px; }
+  .nav { display: flex; gap: 4px; width: 100%; overflow-x: auto; }
+  .nav a { white-space: nowrap; flex: none; }
   .contenu { padding: 20px 16px 48px; }
   dl { grid-template-columns: 1fr; }
   dt { border-bottom: 0; padding-bottom: 0; }
@@ -260,7 +326,30 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 }
 `;
 
-export type Rubrique = 'prospects' | 'recherches' | 'cibles';
+// Sur toutes les pages : « / » place le curseur dans la recherche, et un message
+// passé dans l'adresse (?message=…) s'affiche quelques secondes après une action.
+const SCRIPT = `
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || /^(input|textarea|select)$/i.test(document.activeElement?.tagName ?? '')) return;
+  const champ = document.querySelector('input[type=search]');
+  if (champ) { e.preventDefault(); champ.focus(); champ.select(); }
+});
+const adresse = new URL(location.href);
+const message = adresse.searchParams.get('message');
+if (message) {
+  adresse.searchParams.delete('message');
+  history.replaceState(null, '', adresse.pathname + adresse.search + adresse.hash);
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.setAttribute('role', 'status');
+  toast.innerHTML = '${icone('valide').replace(/"/g, '\\"')}';
+  toast.append(message);
+  document.body.append(toast);
+  setTimeout(() => { toast.classList.add('parti'); setTimeout(() => toast.remove(), 400); }, 4000);
+}
+`;
+
+export type Rubrique = 'tableau' | 'prospects' | 'recherches' | 'cibles';
 
 export function page(titre: string, contenu: string, rubrique: Rubrique = 'prospects', tete = ''): Response {
   const lien = (cle: Rubrique, href: string, libelle: string) =>
@@ -275,10 +364,10 @@ export function page(titre: string, contenu: string, rubrique: Rubrique = 'prosp
   <aside class="barre">
     <a href="/" class="marque"><div class="marque-logo">Cb</div><div><strong>Prospection</strong><span>C'est bien beau</span></div></a>
     <div class="nav-titre">Outils</div>
-    <nav class="nav">${lien('prospects', '/', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}${lien('cibles', '/cibles', 'Cibles')}</nav>
+    <nav class="nav">${lien('tableau', '/', 'Tableau de bord')}${lien('prospects', '/prospects', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}${lien('cibles', '/cibles', 'Cibles')}</nav>
   </aside>
   <main class="contenu">${contenu}</main>
-</div></body></html>`,
+</div><script>${SCRIPT}</script></body></html>`,
     { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
   );
 }

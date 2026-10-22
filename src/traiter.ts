@@ -2,7 +2,7 @@
 // raccourcis clavier pour vider une file (à écrire, à appeler, à vérifier…).
 import { brouillon, chargerCibles } from './cibles';
 import { echapper, icone, page } from './html';
-import { SCORE, STATUTS, TRAITABLES, type Prospect, avisDetaille, badge, changerStatut, clauses, lienFiltres, lireFiltres, priorite } from './prospects';
+import { SCORE, STATUTS, TRAITABLES, type Prospect, avisDetaille, badge, changerStatut, clauses, lienFiltres, lireFiltres, requeteFiltres, priorite } from './prospects';
 
 type Action = { valeur: string; libelle: string; style?: string };
 
@@ -40,14 +40,14 @@ function lireSauf(valeur: string | null) {
 
 function adresse(url: URL, sauf: string[]) {
   const filtres = lireFiltres(url);
-  const params = new URLSearchParams(lienFiltres(filtres).slice(2));
+  const params = new URLSearchParams(requeteFiltres(filtres));
   if (sauf.length) params.set('sauf', sauf.join(','));
   return `/traiter?${params}`;
 }
 
 export async function pageTraiter(url: URL, env: Env) {
   const filtres = lireFiltres(url);
-  if (!TRAITABLES.includes(filtres.statut)) return Response.redirect(new URL('/', url).toString(), 303);
+  if (!TRAITABLES.includes(filtres.statut)) return Response.redirect(new URL('/prospects', url).toString(), 303);
   const sauf = lireSauf(url.searchParams.get('sauf'));
   const { where, valeurs } = clauses(filtres);
   const exclus = sauf.length ? ` AND id NOT IN (${sauf.map(() => '?').join(', ')})` : '';

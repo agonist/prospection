@@ -21,11 +21,20 @@ import {
   date,
   lienFiltres,
   lireFiltres,
+  requeteFiltres,
 } from './prospects';
 import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
+import { tableau } from './tableau';
 import { pageTraiter, traiter } from './traiter';
+
+// Redirige après une action, avec un message affiché en bas de l'écran.
+function apres(requete: Request, chemin: string, message: string) {
+  const url = new URL(chemin.startsWith('/') && !chemin.startsWith('//') ? chemin : '/prospects', requete.url);
+  url.searchParams.set('message', message);
+  return Response.redirect(url.toString(), 303);
+}
 
 async function liste(url: URL, env: Env) {
   const filtres = lireFiltres(url);
@@ -131,7 +140,7 @@ async function liste(url: URL, env: Env) {
       <div><h1>Prospects</h1><p>Tous les établissements trouvés, avec leur constat et leur statut.</p></div>
       <div class="actions-entete">${
         TRAITABLES.includes(filtres.statut) && nombre
-          ? `<a href="/traiter${lienFiltres(filtres).slice(1)}" class="btn">${icone('jouer')}Traiter ces ${nombre} fiches</a><a href="/recherches" class="btn contour">${icone('plus')}Nouvelle recherche</a>`
+          ? `<a href="/traiter?${requeteFiltres(filtres)}" class="btn">${icone('jouer')}Traiter ces ${nombre} fiches</a><a href="/recherches" class="btn contour">${icone('plus')}Nouvelle recherche</a>`
           : `<a href="/recherches" class="btn">${icone('plus')}Nouvelle recherche</a>`
       }</div>
     </header>
@@ -144,7 +153,7 @@ async function liste(url: URL, env: Env) {
     <section class="stats">
       ${stat('nouveau', 'Prêts pour Smartlead')}${stat('a_ecrire', 'À écrire à la main')}${stat('a_appeler', 'À appeler')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}
     </section>
-    <form class="outils" method="get" action="/">
+    <form class="outils" method="get" action="/prospects">
       <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
       <select name="categorie" onchange="this.form.submit()"><option value="">Toutes les catégories</option>${optionsCategories}</select>
       <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
@@ -219,7 +228,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
 
   return page(
     p.nom,
-    `<a class="retour" href="/?cible=${encodeURIComponent(p.cible)}">${icone('retour')}Prospects</a>
+    `<a class="retour" href="/prospects?cible=${encodeURIComponent(p.cible)}">${icone('retour')}Prospects</a>
     <header class="page-entete">
       <div><h1>${echapper(p.nom)}</h1><p class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)} · ${echapper(cibles[p.cible]?.nom ?? p.cible)}</p></div>
       ${badge(p.statut)}
@@ -343,8 +352,7 @@ async function lot(requete: Request, env: Env) {
   const ids = donnees.getAll('ids').map(String).slice(0, 100);
   if (!(statut in STATUTS) || statut === 'a_analyser') return new Response('Statut inconnu', { status: 400 });
   if (ids.length) await env.DB.batch(ids.map((id) => changerStatut(env, id, statut, null)));
-  const retour = String(donnees.get('retour') ?? '/');
-  return Response.redirect(new URL(retour.startsWith('/') && !retour.startsWith('//') ? retour : '/', requete.url).toString(), 303);
+  return apres(requete, String(donnees.get('retour') ?? '/prospects'), `${ids.length} fiche${ids.length > 1 ? 's' : ''} passée${ids.length > 1 ? 's' : ''} en « ${STATUTS[statut]} »`);
 }
 
 async function reanalyser(requete: Request, env: Env) {
@@ -352,8 +360,8 @@ async function reanalyser(requete: Request, env: Env) {
   const filtres = Object.fromEntries(['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri'].map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
   if (!REANALYSABLES.includes(filtres.statut)) return new Response('Statut non réanalysable', { status: 400 });
   const { where, valeurs } = clauses(filtres);
-  await env.DB.prepare(`UPDATE prospects SET statut = 'a_analyser' ${where}`).bind(...valeurs).run();
-  return Response.redirect(new URL('/recherches', requete.url).toString(), 303);
+  const { meta } = await env.DB.prepare(`UPDATE prospects SET statut = 'a_analyser' ${where}`).bind(...valeurs).run();
+  return apres(requete, '/recherches', `${meta.changes} fiches renvoyées à l’analyse`);
 }
 
 async function purger(requete: Request, env: Env) {
@@ -361,7 +369,7 @@ async function purger(requete: Request, env: Env) {
   await env.DB.prepare(`DELETE FROM prospects WHERE statut IN (${PURGEABLES.map(() => '?').join(', ')}) AND statut_le < ? AND vu_le < ?`)
     .bind(...PURGEABLES, limite, limite)
     .run();
-  return Response.redirect(new URL('/', requete.url).toString(), 303);
+  return apres(requete, '/prospects', 'Prospects de plus de 3 ans effacés');
 }
 
 export default {
@@ -391,7 +399,12 @@ export default {
       if (requete.method === 'POST') return modifier(id, requete, env);
       return fiche(id, env, url.searchParams.has('ok'));
     }
-    if (url.pathname === '/' && requete.method === 'GET') return liste(url, env);
+    if (url.pathname === '/' && requete.method === 'GET') {
+      // Les anciens liens filtrés (/?statut=…) mènent toujours à la liste.
+      if (url.search && !url.searchParams.has('message')) return Response.redirect(new URL(`/prospects${url.search}`, url).toString(), 301);
+      return tableau(env);
+    }
+    if (url.pathname === '/prospects' && requete.method === 'GET') return liste(url, env);
     if (url.pathname === '/recherches' && requete.method === 'GET') return pageRecherches(url, env);
     if (url.pathname === '/recherches' && requete.method === 'POST') return lancerRecherche(requete, env);
     if (url.pathname === '/cibles' && requete.method === 'GET') return pageCibles(url, env);
