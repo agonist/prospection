@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { CONSTATS } from '../scripts/cibles.mjs';
 
 export const MODELE_PAR_DEFAUT = 'claude-opus-5-5';
+// Même modèle, nommé à la façon d'OpenRouter (openrouter.ai/models).
+export const MODELE_OPENROUTER = 'anthropic/claude-opus-5.5';
 
 export type Avis = {
   verdict: 'bon' | 'moyen' | 'faible' | 'hors_cible';
@@ -80,15 +82,65 @@ ${d.page.texte || '(vide)'}
 </texte>`;
 }
 
+// Une clé OpenRouter passe avant une clé Anthropic.
+function openrouter(env: Env) {
+  return Boolean(env.OPENROUTER_API_KEY);
+}
+
 export function claudeActif(env: Env) {
-  return Boolean(env.ANTHROPIC_API_KEY);
+  return Boolean(env.OPENROUTER_API_KEY || env.ANTHROPIC_API_KEY);
 }
 
 export function modele(env: Env) {
-  return String(env.CLAUDE_MODELE || MODELE_PAR_DEFAUT);
+  return String(env.CLAUDE_MODELE || (openrouter(env) ? MODELE_OPENROUTER : MODELE_PAR_DEFAUT));
+}
+
+function lireAvis(texte: string): Avis {
+  // Certains modèles entourent le JSON de texte ou de ```json : on garde l'objet.
+  const debut = texte.indexOf('{');
+  const fin = texte.lastIndexOf('}');
+  const avis = JSON.parse(debut >= 0 && fin > debut ? texte.slice(debut, fin + 1) : texte) as Avis;
+  if (!['bon', 'moyen', 'faible', 'hors_cible'].includes(avis.verdict)) throw new Error(`Verdict inconnu : ${avis.verdict}`);
+  avis.qualite = Math.min(10, Math.max(1, Math.round(Number(avis.qualite) || 5)));
+  avis.constat = String(avis.constat ?? '').trim().replace(/^en regardant[^,]*, j'ai remarqué que\s*/i, '').replace(/[.\s]+$/, '');
+  avis.raisons = Array.isArray(avis.raisons) ? avis.raisons.map(String) : [];
+  if (!['haute', 'moyenne', 'basse'].includes(avis.confiance)) avis.confiance = 'moyenne';
+  return avis;
+}
+
+async function jugerOpenRouter(env: Env, demande: Demande): Promise<Avis | null> {
+  const base = String(env.OPENROUTER_API || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+  const reponse = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      'content-type': 'application/json',
+      'x-title': 'Prospection C\'est bien beau',
+    },
+    body: JSON.stringify({
+      model: modele(env),
+      max_tokens: 8000,
+      messages: [
+        { role: 'system', content: SYSTEME },
+        { role: 'user', content: message(demande) },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: 'avis', strict: true, schema: SCHEMA } },
+      // Tâche de tri : peu de réflexion suffit.
+      reasoning: { effort: 'low' },
+    }),
+  });
+  const corps = (await reponse.json().catch(() => null)) as {
+    error?: { message?: string };
+    choices?: { finish_reason?: string; message?: { content?: string | null; refusal?: string | null } }[];
+  } | null;
+  if (!reponse.ok || corps?.error) throw new Error(`OpenRouter ${reponse.status} : ${corps?.error?.message ?? 'réponse illisible'}`);
+  const choix = corps?.choices?.[0];
+  if (!choix?.message?.content || choix.message.refusal) return null;
+  return lireAvis(choix.message.content);
 }
 
 export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
+  if (openrouter(env)) return jugerOpenRouter(env, demande);
   const client = new Anthropic({
     apiKey: env.ANTHROPIC_API_KEY,
     ...(env.ANTHROPIC_API ? { baseURL: String(env.ANTHROPIC_API) } : {}),
@@ -107,8 +159,5 @@ export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
   if (reponse.stop_reason === 'refusal') return null;
   const texte = reponse.content.find((bloc) => bloc.type === 'text');
   if (!texte || texte.type !== 'text') return null;
-  const avis = JSON.parse(texte.text) as Avis;
-  avis.qualite = Math.min(10, Math.max(1, Math.round(avis.qualite)));
-  avis.constat = avis.constat.trim().replace(/^en regardant[^,]*, j'ai remarqué que\s*/i, '').replace(/[.\s]+$/, '');
-  return avis;
+  return lireAvis(texte.text);
 }

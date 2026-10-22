@@ -195,7 +195,7 @@ export async function tableau(env: Env) {
     </section>
     <div class="grille tableau-de-bord">
       <section class="carte">
-        <div class="carte-entete"><div><h2 class="carte-titre">Avis de Claude</h2><p class="carte-description">${totalAvis ? `${nombre(totalAvis)} sites jugés. Un site faible est une bonne occasion d’écrire.` : 'Aucun site jugé pour l’instant. Ajoute ANTHROPIC_API_KEY dans .dev.vars pour que Claude juge chaque site.'}</p></div></div>
+        <div class="carte-entete"><div><h2 class="carte-titre">Avis de Claude</h2><p class="carte-description">${totalAvis ? `${nombre(totalAvis)} sites jugés. Un site faible est une bonne occasion d’écrire.` : 'Aucun site jugé pour l’instant. Ajoute OPENROUTER_API_KEY ou ANTHROPIC_API_KEY dans .dev.vars pour que Claude juge chaque site.'}</p></div></div>
         <div class="carte-contenu">${barres(lignesAvis, totalAvis)}</div>
       </section>
       <section class="carte">

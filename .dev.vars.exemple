@@ -4,5 +4,8 @@ APIFY_TOKEN=
 # Clé API Anthropic, pour que Claude juge chaque site : console.anthropic.com → API Keys.
 # Sans clé, l'analyse se fait avec les règles seules.
 ANTHROPIC_API_KEY=
-# Modèle utilisé (par défaut claude-opus-5-5). claude-haiku-5-5 coûte environ 40 fois moins cher.
+# Ou une clé OpenRouter (openrouter.ai → Keys) : elle passe avant la clé Anthropic.
+OPENROUTER_API_KEY=
+# Modèle utilisé. Par défaut claude-opus-5-5, ou anthropic/claude-opus-5.5 avec OpenRouter.
+# Haiku (claude-haiku-5-5, anthropic/claude-haiku-5.5 sur OpenRouter) coûte environ 40 fois moins cher.
 CLAUDE_MODELE=

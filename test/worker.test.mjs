@@ -41,16 +41,29 @@ function demarrerFauxApify(fiches) {
       return json(fiches.slice(debut, fin), { 'x-apify-pagination-total': String(fiches.length) });
     }
     // Faux Claude : juge le site A faible et le site F déjà bon.
+    const avisPour = (texte) =>
+      texte.includes('Entreprise : Domaine F')
+        ? { verdict: 'bon', qualite: 9, constat: '', raisons: ['site récent et complet'], confiance: 'haute' }
+        : { verdict: 'faible', qualite: 3, constat: 'votre page d’accueil ne présente aucune de vos cuvées.', raisons: ['texte très court', 'aucune cuvée'], confiance: 'haute' };
+    // Faux OpenRouter : même chose, au format chat completions, JSON entouré de ```json.
+    if (req.method === 'POST' && url.pathname === '/openrouter/chat/completions') {
+      let corps = '';
+      req.on('data', (morceau) => (corps += morceau));
+      req.on('end', () => {
+        const entree = JSON.parse(corps);
+        appels.claude.push({ cle: req.headers.authorization, entree });
+        const avis = avisPour(entree.messages.find((m) => m.role === 'user').content);
+        json({ id: 'gen-1', model: entree.model, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '```json\n' + JSON.stringify(avis) + '\n```' } }] });
+      });
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/v1/messages') {
       let corps = '';
       req.on('data', (morceau) => (corps += morceau));
       req.on('end', () => {
         const entree = JSON.parse(corps);
         appels.claude.push({ beta: req.headers['anthropic-beta'], cle: req.headers['x-api-key'], entree });
-        const texte = entree.messages[0].content;
-        const avis = texte.includes('Entreprise : Domaine F')
-          ? { verdict: 'bon', qualite: 9, constat: '', raisons: ['site récent et complet'], confiance: 'haute' }
-          : { verdict: 'faible', qualite: 3, constat: 'votre page d’accueil ne présente aucune de vos cuvées.', raisons: ['texte très court', 'aucune cuvée'], confiance: 'haute' };
+        const avis = avisPour(entree.messages[0].content);
         json({
           id: 'msg_1',
           type: 'message',
@@ -250,5 +263,49 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
   } finally {
     process.kill(-worker.pid);
     apifyFinal.serveur.close();
+  }
+});
+
+test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 120_000 }, async () => {
+  const fiches = [
+    { placeId: 'A', title: 'Domaine A', city: 'Barr', categoryName: 'Producteur de vin' },
+    { placeId: 'F', title: 'Domaine F', city: 'Barr' },
+  ];
+  const faux = await demarrerFauxApify(fiches);
+  fiches[0].website = `http://127.0.0.1:${faux.port}/site-a/`;
+  fiches[1].website = `http://127.0.0.1:${faux.port}/site-f/`;
+  const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
+  const vars = join(persistance, '.dev.vars');
+  writeFileSync(
+    vars,
+    `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nANTHROPIC_API_KEY=cle-anthropic\nOPENROUTER_API_KEY=cle-openrouter\nOPENROUTER_API=http://127.0.0.1:${faux.port}/openrouter/\n`,
+  );
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  const port = PORT_WORKER + 1;
+  const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
+    cwd: racine,
+    stdio: 'ignore',
+    detached: true,
+  });
+  try {
+    const admin = `http://127.0.0.1:${port}`;
+    await attendre(admin);
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Claude juge chaque site \(anthropic\/claude-opus-5\.5\)/);
+    await fetch(`${admin}/recherches`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', metiers: 'domaine viticole', communes: 'Barr', max: '20' }), redirect: 'manual' });
+    for (let i = 0; i < 3; i++) await fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
+
+    assert.equal(faux.appels.claude.length, 2);
+    const appel = faux.appels.claude[0];
+    assert.equal(appel.cle, 'Bearer cle-openrouter');
+    assert.equal(appel.entree.model, 'anthropic/claude-opus-5.5');
+    assert.equal(appel.entree.response_format.json_schema.strict, true);
+    assert.equal(appel.entree.messages[0].role, 'system');
+    const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
+    const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
+    assert.match(ligne('Domaine A'), /votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10/);
+    assert.match(ligne('Domaine F'), /badge-plus_tard[\s\S]*site déjà bon selon Claude \(9\/10\)/);
+  } finally {
+    process.kill(-worker.pid);
+    faux.serveur.close();
   }
 });

@@ -151,7 +151,7 @@ export async function pageRecherches(url: URL, env: Env) {
           ${
             claudeActif(env)
               ? `<p class="etat-tache"><span class="voyant"></span>Claude juge chaque site (${echapper(modele(env))}).</p>`
-              : '<p class="etat-tache"><span class="voyant inactif"></span>Claude ne juge pas les sites : ajoute <code>ANTHROPIC_API_KEY</code> dans <code>.dev.vars</code>.</p>'
+              : '<p class="etat-tache"><span class="voyant inactif"></span>Claude ne juge pas les sites : ajoute <code>OPENROUTER_API_KEY</code> ou <code>ANTHROPIC_API_KEY</code> dans <code>.dev.vars</code>.</p>'
           }
           ${attente ? barre(0, 1, `${attente} sites en attente d’analyse`) : '<p class="discret">Aucun site en attente d’analyse.</p>'}
           ${lignesJournal ? `<ol class="journal">${lignesJournal}</ol>` : '<p class="discret">Le journal est vide pour l’instant.</p>'}

@@ -20,6 +20,8 @@ Avec une clé API Anthropic (`ANTHROPIC_API_KEY` dans `.dev.vars`, à créer sur
 - **Hors cible** (chaîne, franchise, autre activité) : « Hors cible ».
 - **Moyen** ou **faible** : son constat remplace celui des règles, et la priorité monte pour les sites faibles.
 
+Une clé [OpenRouter](https://openrouter.ai) marche aussi : `OPENROUTER_API_KEY` dans `.dev.vars`, elle passe avant la clé Anthropic. Le modèle par défaut est alors `anthropic/claude-opus-5.5` ; vérifier son nom exact sur openrouter.ai/models et le changer avec `CLAUDE_MODELE` au besoin.
+
 Claude ne voit pas le rendu visuel, seulement le texte et la structure. Sans clé, l'analyse se fait avec les règles seules, comme avant. Le modèle se change avec `CLAUDE_MODELE` (par défaut `claude-opus-5-5`, environ 2 centimes par site ; `claude-haiku-5-5` coûte environ 40 fois moins). Pour faire juger les fiches déjà analysées, ouvrir un onglet et cliquer sur **Réanalyser**.
 
 ## Les statuts
