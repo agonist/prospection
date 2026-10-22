@@ -2,7 +2,7 @@
 // raccourcis clavier pour vider une file (à écrire, à appeler, à vérifier…).
 import { brouillon, chargerCibles } from './cibles';
 import { echapper, icone, page } from './html';
-import { SCORE, STATUTS, TRAITABLES, type Prospect, badge, changerStatut, clauses, lienFiltres, lireFiltres, priorite } from './prospects';
+import { SCORE, STATUTS, TRAITABLES, type Prospect, avisDetaille, badge, changerStatut, clauses, lienFiltres, lireFiltres, priorite } from './prospects';
 
 type Action = { valeur: string; libelle: string; style?: string };
 
@@ -104,6 +104,7 @@ export async function pageTraiter(url: URL, env: Env) {
         <div class="carte-contenu formulaire">
           ${p.constat ? `<div><span class="discret">J’ai remarqué que…</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
           ${p.raison ? `<div class="alerte attention"><p>${echapper(p.raison)}</p></div>` : ''}
+          ${avisDetaille(p)}
           <dl>
             ${ligne('Email', p.email ? `${echapper(p.email)} <span class="discret">${echapper(p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Téléphone', p.telephone ? `<a class="avec-icone gros" href="tel:${echapper(p.telephone)}">${icone('telephone', 16)}${echapper(p.telephone)}</a>` : '')}

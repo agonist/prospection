@@ -1,3 +1,8 @@
 ACCESS_DESACTIVE=1
 # Clé API Apify : Settings → API & Integrations sur console.apify.com
 APIFY_TOKEN=
+# Clé API Anthropic, pour que Claude juge chaque site : console.anthropic.com → API Keys.
+# Sans clé, l'analyse se fait avec les règles seules.
+ANTHROPIC_API_KEY=
+# Modèle utilisé (par défaut claude-opus-5-5). claude-haiku-5-5 coûte environ 40 fois moins cher.
+CLAUDE_MODELE=

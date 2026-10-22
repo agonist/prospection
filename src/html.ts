@@ -212,6 +212,12 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 .actions-ligne { text-align: right; white-space: nowrap; }
 .actions-ligne .btn + .btn { margin-left: 6px; }
 .couverture { display: flex; flex-wrap: wrap; gap: 6px; }
+.verdict { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-top: 4px; background: var(--attenue); color: var(--attenue-texte); }
+.verdict-faible { background: color-mix(in srgb, var(--succes) 14%, transparent); color: var(--succes); }
+.verdict-moyen { background: color-mix(in srgb, var(--attention) 14%, transparent); color: var(--attention); }
+.verdict-bon, .verdict-hors_cible { background: var(--attenue); color: var(--attenue-texte); }
+.avis ul { margin: 8px 0 0; padding-left: 18px; color: var(--attenue-texte); }
+.avis li { margin: 2px 0; }
 .priorite { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--attenue); color: var(--attenue-texte); }
 .priorite-haute { background: color-mix(in srgb, var(--succes) 16%, transparent); color: var(--succes); }
 .priorite-moyenne { background: color-mix(in srgb, var(--attention) 14%, transparent); color: var(--attention); }

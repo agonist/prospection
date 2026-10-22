@@ -56,12 +56,15 @@ export type Prospect = {
   statut_le: string;
   contacte_le: string | null;
   score?: number;
+  verdict: string;
+  qualite: number | null;
+  avis: string;
 };
 
 export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string };
 
 // Statuts que « Réanalyser » renvoie en analyse.
-export const REANALYSABLES = ['a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard'];
+export const REANALYSABLES = ['nouveau', 'a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard'];
 
 export function lireFiltres(url: URL): Filtres {
   return {
@@ -137,7 +140,8 @@ export function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCi
 export const SCORE = `(CASE WHEN constat_cle IN ('pasDeSite', 'reseauSocial', 'annuaire') THEN 40 WHEN constat_cle <> '' THEN 20 ELSE 0 END
   + MIN(COALESCE(avis_google, 0), 60) / 2
   + CASE WHEN note_google >= 4.5 THEN 10 WHEN note_google >= 4 THEN 5 ELSE 0 END
-  + CASE WHEN email_statut IN ('generique', 'entreprise') THEN 15 WHEN email <> '' THEN 10 WHEN telephone <> '' THEN 5 ELSE 0 END)`;
+  + CASE WHEN email_statut IN ('generique', 'entreprise') THEN 15 WHEN email <> '' THEN 10 WHEN telephone <> '' THEN 5 ELSE 0 END
+  + CASE verdict WHEN 'faible' THEN 10 WHEN 'moyen' THEN 0 WHEN 'bon' THEN -20 ELSE 0 END)`;
 
 // Files qu'on traite une fiche à la fois, triées par priorité.
 export const TRAITABLES = ['nouveau', 'a_ecrire', 'a_appeler', 'a_verifier'];
@@ -158,4 +162,20 @@ export function changerStatut(env: Env, id: string, statut: string, note: string
       note = COALESCE(?3, note)
     WHERE id = ?4`,
   ).bind(statut, new Date().toISOString(), note, id);
+}
+
+const VERDICTS: Record<string, string> = { bon: 'Site bon', moyen: 'Site moyen', faible: 'Site faible', hors_cible: 'Hors cible' };
+
+// L'avis de Claude en une pastille : « Site faible 3/10 ».
+export function verdict(p: Pick<Prospect, 'verdict' | 'qualite'>) {
+  if (!p.verdict) return '';
+  return `<span class="verdict verdict-${echapper(p.verdict)}" title="Avis de Claude sur le site">${VERDICTS[p.verdict] ?? echapper(p.verdict)}${p.qualite ? ` ${p.qualite}/10` : ''}</span>`;
+}
+
+// Le détail de l'avis : raisons et confiance.
+export function avisDetaille(p: Pick<Prospect, 'verdict' | 'qualite' | 'avis'>) {
+  if (!p.verdict || !p.avis) return '';
+  const { raisons = [], confiance = '' } = JSON.parse(p.avis) as { raisons?: string[]; confiance?: string };
+  return `<div class="avis">${verdict(p)}${confiance && confiance !== 'haute' ? ` <span class="discret">confiance ${echapper(confiance)}</span>` : ''}
+    <ul>${raisons.map((raison) => `<li>${echapper(raison)}</li>`).join('')}</ul></div>`;
 }

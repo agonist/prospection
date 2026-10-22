@@ -261,6 +261,66 @@ export function auditer({ site, urlFinale, html, anneeCourante = new Date().getF
   return signaux;
 }
 
+/** @type {[RegExp, string][]} */
+const TECHNIQUES = [
+  [/wix\.com|wixstatic/i, 'Wix'],
+  [/jimdo/i, 'Jimdo'],
+  [/squarespace/i, 'Squarespace'],
+  [/wp-content/i, 'WordPress'],
+  [/e-monsite/i, 'e-monsite'],
+  [/webself/i, 'Webself'],
+  [/shopify/i, 'Shopify'],
+  [/jquery[.-]1\./i, 'jQuery 1.x (ancien)'],
+  [/<table[^>]+width=/i, 'mise en page en tableaux (ancienne)'],
+  [/\.swf\b|<embed/i, 'Flash ou <embed> (obsolète)'],
+  [/<frameset|<frame\s/i, 'cadres (frameset, obsolète)'],
+];
+
+// Ce que Claude lit d'une page d'accueil : le texte visible et quelques
+// indices techniques, sans le HTML complet (trop long et coûteux).
+export function extrairePage(html, url) {
+  const meta = (nom) => html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${nom}["'][^>]*content=["']([^"']*)`, 'i'))?.[1]?.trim() ?? '';
+  const decoder = (texte) =>
+    texte
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&#39;|&rsquo;|&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&eacute;/g, 'é')
+      .replace(/&egrave;/g, 'è')
+      .replace(/&agrave;/g, 'à')
+      .replace(/&#\d+;|&[a-z]+;/g, ' ');
+  const liens = [...html.matchAll(/<a\s[^>]*>([\s\S]*?)<\/a>/gi)]
+    .map(([, texte]) => decoder(texte.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim())
+    .filter((texte) => texte && texte.length <= 40);
+  const texte = decoder(
+    html
+      .replace(/<(head|script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<(br|p|div|h[1-6]|li|section|article|header|footer|tr)\b[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, ' '),
+  )
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim();
+  /** @type {string[]} */
+  const indices = [];
+  const generateur = meta('generator');
+  if (generateur) indices.push(`générateur : ${generateur}`);
+  for (const [motif, nom] of TECHNIQUES) {
+    if (motif.test(html)) indices.push(nom);
+  }
+  return {
+    url,
+    titre: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim(),
+    description: meta('description'),
+    liens: [...new Set(liens)].slice(0, 40),
+    indices,
+    poidsKo: Math.round(html.length / 1024),
+    texte: texte.slice(0, 6000),
+  };
+}
+
 export function choisirConstat(signaux, cible) {
   const cle = cible.constats.find((nom) => signaux[nom]);
   if (!cle) return null;

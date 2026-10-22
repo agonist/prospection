@@ -1,4 +1,5 @@
 import { lancer } from './apify';
+import { claudeActif, modele } from './claude';
 import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
 
@@ -147,6 +148,11 @@ export async function pageRecherches(url: URL, env: Env) {
           <p class="carte-description">${travail ? 'Mise à jour automatique toutes les 10 secondes.' : 'Rien en cours.'}</p></div></div>
         <div class="carte-contenu grille">
           ${etatTache(dernier, travail)}
+          ${
+            claudeActif(env)
+              ? `<p class="etat-tache"><span class="voyant"></span>Claude juge chaque site (${echapper(modele(env))}).</p>`
+              : '<p class="etat-tache"><span class="voyant inactif"></span>Claude ne juge pas les sites : ajoute <code>ANTHROPIC_API_KEY</code> dans <code>.dev.vars</code>.</p>'
+          }
           ${attente ? barre(0, 1, `${attente} sites en attente d’analyse`) : '<p class="discret">Aucun site en attente d’analyse.</p>'}
           ${lignesJournal ? `<ol class="journal">${lignesJournal}</ol>` : '<p class="discret">Le journal est vide pour l’instant.</p>'}
         </div>

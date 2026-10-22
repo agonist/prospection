@@ -19,5 +19,13 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "wrangler": "^4.151.1"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.134.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@opentelemetry/api": "1.9.1"
+    }
   }
 }

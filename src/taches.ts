@@ -7,6 +7,7 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
+import { type Avis, claudeActif, juger } from './claude';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -143,10 +144,29 @@ async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Ci
   return true;
 }
 
-type AAnalyser = { id: string; cible: string; nom: string; site: string; telephone: string; emails_fiche: string };
+type Analyse = { signaux: Record<string, unknown>; constat: { cle: string; phrase: string } | null; statut: string; email: string };
+
+// L'avis de Claude, quand il existe, prime sur les règles pour le constat et
+// pour écarter les sites déjà bons ; le choix de l'email reste le même.
+export function decider(analyse: Analyse, avis: Avis | null, telephone: string) {
+  if (avis?.verdict === 'hors_cible') {
+    return { statut: 'hors_cible', raison: `hors cible selon Claude : ${avis.raisons[0] ?? ''}`, constat: null };
+  }
+  if (avis?.verdict === 'bon') {
+    return { statut: 'plus_tard', raison: `site déjà bon selon Claude (${avis.qualite}/10) : ${avis.raisons[0] ?? ''}`, constat: null };
+  }
+  const constat = avis?.constat ? { cle: 'claude', phrase: avis.constat } : analyse.constat;
+  const resultat = statutApresAnalyse({ ...analyse, constat }, telephone);
+  if (resultat.statut === 'nouveau' && avis?.confiance === 'basse') {
+    return { statut: 'a_verifier', raison: `Claude n’a pas pu bien juger le site : ${avis.raisons[0] ?? 'page presque vide'}`, constat };
+  }
+  return { ...resultat, constat };
+}
+
+type AAnalyser = { id: string; cible: string; nom: string; categorie: string; ville: string; site: string; telephone: string; emails_fiche: string };
 
 async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: string) {
-  const { results } = await env.DB.prepare("SELECT id, cible, nom, site, telephone, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
+  const { results } = await env.DB.prepare("SELECT id, cible, nom, categorie, ville, site, telephone, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
@@ -155,7 +175,28 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
     // Une fiche qui fait planter l'analyse ne doit pas bloquer les autres.
     results.map((p) =>
       Promise.resolve()
-        .then(() => analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cibles[p.cible] ?? { constats: [] }))
+        .then(async () => {
+          const cible = cibles[p.cible];
+          const analyse = await analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cible ?? { constats: [] });
+          // Claude ne juge que les sites qu'on a pu lire ; sans clé, les règles suffisent.
+          let avis: Avis | null = null;
+          let erreurClaude = '';
+          if (analyse.page && claudeActif(env)) {
+            avis = await juger(env, {
+              nom: p.nom,
+              categorie: p.categorie,
+              ville: p.ville,
+              cible: cible?.nom ?? p.cible,
+              metiers: cible?.metiers ?? [],
+              page: analyse.page,
+              signaux: analyse.signaux,
+            }).catch((erreur: unknown) => {
+              erreurClaude = String(erreur).slice(0, 200);
+              return null;
+            });
+          }
+          return { ...analyse, avis, erreurClaude };
+        })
         .catch((erreur: unknown) => ({ erreur: String(erreur).slice(0, 200) })),
     ),
   );
@@ -173,24 +214,33 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
           noter(env, 'erreur', `${p.nom} : erreur d’analyse (${resultat.erreur}), passé en « à vérifier ».`),
         ];
       }
-      const analyse = resultat;
-      const { statut, raison } = statutApresAnalyse(analyse, p.telephone);
+      const { avis, erreurClaude, ...analyse } = resultat;
+      const { statut, raison, constat } = decider(analyse, avis, p.telephone);
       return [
         env.DB.prepare(
-          `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?
+          `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?,
+            verdict = ?, qualite = ?, avis = ?
             WHERE id = ? AND statut = 'a_analyser'`,
         ).bind(
           analyse.email,
           analyse.statut,
-          analyse.constat?.cle ?? '',
-          analyse.constat?.phrase ?? '',
+          constat?.cle ?? '',
+          constat?.phrase ?? '',
           JSON.stringify(analyse.signaux),
           statut,
           raison,
           maintenant,
+          avis?.verdict ?? '',
+          avis?.qualite ?? null,
+          avis ? JSON.stringify({ raisons: avis.raisons, confiance: avis.confiance }) : '',
           p.id,
         ),
-        noter(env, statut === 'nouveau' ? 'succes' : 'info', `${p.nom} : ${LIBELLES[statut] ?? statut}${statut === 'nouveau' ? ` (${analyse.constat?.phrase})` : ` (${raison})`}.`),
+        noter(
+          env,
+          statut === 'nouveau' ? 'succes' : 'info',
+          `${p.nom} : ${LIBELLES[statut] ?? statut}${avis ? `, site ${avis.verdict === 'hors_cible' ? 'hors cible' : avis.verdict} ${avis.qualite}/10 selon Claude` : ''}${statut === 'nouveau' ? ` (${constat?.phrase})` : ` (${raison})`}.`,
+        ),
+        ...(erreurClaude ? [noter(env, 'erreur', `${p.nom} : Claude n’a pas répondu (${erreurClaude}), analyse faite avec les règles seules.`)] : []),
       ];
     }),
   );

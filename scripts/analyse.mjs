@@ -1,6 +1,6 @@
 // Visite le site d'un prospect pour trouver une adresse email et un constat.
 // Utilisé par le Worker (tâche planifiée) et par les tests.
-import { auditer, choisirConstat, choisirEmail, estPlateforme, extraireEmails, liensUtiles } from './lib.mjs';
+import { auditer, choisirConstat, choisirEmail, estPlateforme, extraireEmails, extrairePage, liensUtiles } from './lib.mjs';
 
 const TIMEOUT_MS = 8_000;
 const NAVIGATEUR = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
@@ -33,5 +33,10 @@ export async function analyser({ site, emails = [], nom = '' }, cible) {
     for (const page of pages) if (page) trouves.push(...extraireEmails(page.html));
   }
   const signaux = auditer({ site, urlFinale: accueil?.url, html: accueil?.html ?? null });
-  return { signaux, constat: choisirConstat(signaux, cible), ...choisirEmail(trouves, site, nom) };
+  return {
+    signaux,
+    constat: choisirConstat(signaux, cible),
+    page: accueil ? extrairePage(accueil.html, accueil.url) : null,
+    ...choisirEmail(trouves, site, nom),
+  };
 }

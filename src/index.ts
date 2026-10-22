@@ -15,6 +15,8 @@ import {
   changerStatut,
   clauses,
   priorite,
+  verdict,
+  avisDetaille,
   contact,
   date,
   lienFiltres,
@@ -104,7 +106,7 @@ async function liste(url: URL, env: Env) {
           p.raison && ['a_verifier', 'a_ecrire', 'a_appeler'].includes(p.statut)
             ? `${echapper(p.raison.split(' : ')[0])}${p.constat ? `<div class="discret">${echapper(p.constat)}</div>` : ''}`
             : echapper(p.constat || p.raison)
-        }</td>
+        }${p.verdict ? `<div>${verdict(p)}</div>` : ''}</td>
         <td>${contact(p, cibles)}</td>
         <td>${p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="lien-site">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}${icone('externe', 12)}</a>` : '<span class="discret">aucun</span>'}</td>
         <td class="discret">${date(p.vu_le)}</td>
@@ -229,6 +231,12 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
           p.constat || p.raison
             ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">${p.constat ? 'Constat pour l’email' : 'À regarder'}</h2><p class="carte-description">${p.constat ? 'La phrase qui suit « j’ai remarqué que » dans l’email 1.' : 'Pourquoi cette fiche n’est pas prête.'}</p></div></div>
                 <div class="carte-contenu"><p class="constat">${echapper(p.constat || p.raison)}</p></div></section>`
+            : ''
+        }
+        ${
+          p.verdict
+            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">Avis de Claude sur le site</h2><p class="carte-description">D’après le texte et la structure de la page d’accueil.</p></div></div>
+                <div class="carte-contenu">${avisDetaille(p)}</div></section>`
             : ''
         }
         <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Coordonnées</h2></div>

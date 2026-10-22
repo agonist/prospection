@@ -12,7 +12,7 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0 };
+  const appels = { runs: [], etat: 0, claude: [] };
   const serveur = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const json = (corps, entetes = {}) => {
@@ -39,6 +39,34 @@ function demarrerFauxApify(fiches) {
       const debut = Number(url.searchParams.get('offset'));
       const fin = debut + Number(url.searchParams.get('limit'));
       return json(fiches.slice(debut, fin), { 'x-apify-pagination-total': String(fiches.length) });
+    }
+    // Faux Claude : juge le site A faible et le site F déjà bon.
+    if (req.method === 'POST' && url.pathname === '/v1/messages') {
+      let corps = '';
+      req.on('data', (morceau) => (corps += morceau));
+      req.on('end', () => {
+        const entree = JSON.parse(corps);
+        appels.claude.push({ beta: req.headers['anthropic-beta'], cle: req.headers['x-api-key'], entree });
+        const texte = entree.messages[0].content;
+        const avis = texte.includes('Entreprise : Domaine F')
+          ? { verdict: 'bon', qualite: 9, constat: '', raisons: ['site récent et complet'], confiance: 'haute' }
+          : { verdict: 'faible', qualite: 3, constat: 'votre page d’accueil ne présente aucune de vos cuvées.', raisons: ['texte très court', 'aucune cuvée'], confiance: 'haute' };
+        json({
+          id: 'msg_1',
+          type: 'message',
+          role: 'assistant',
+          model: entree.model,
+          content: [{ type: 'text', text: JSON.stringify(avis) }],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: { input_tokens: 10, output_tokens: 10 },
+        });
+      });
+      return;
+    }
+    if (url.pathname === '/site-f/') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end('<html><meta name="viewport" content="width=device-width"><p>Domaine F, boutique en ligne</p> © 2026 contact@127.0.0.1</html>');
     }
     if (url.pathname === '/site-a/') {
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -73,13 +101,15 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     { placeId: 'C', title: 'Cave coopérative de Barr', city: 'Barr' },
     { placeId: 'D', title: 'Domaine D', city: 'Barr', emails: ['claire.martin@gmail.com'] },
     { placeId: 'E', title: 'Domaine E', city: 'Andlau', phone: '03 89 00 00 00', emails: ['mailto:'] },
+    { placeId: 'F', title: 'Domaine F', city: 'Barr' },
   ];
   const apifyFinal = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${apifyFinal.port}/site-a/`;
+  fiches[5].website = `http://127.0.0.1:${apifyFinal.port}/site-f/`;
 
   const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
   const vars = join(persistance, '.dev.vars');
-  writeFileSync(vars, `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${apifyFinal.port}\n`);
+  writeFileSync(vars, `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${apifyFinal.port}\nANTHROPIC_API_KEY=cle-test\nANTHROPIC_API=http://127.0.0.1:${apifyFinal.port}\n`);
   execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
   const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT_WORKER), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
     cwd: racine,
@@ -112,12 +142,22 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     const suivi = await (await fetch(`${admin}/recherches`)).text();
     assert.match(suivi, /Dernier passage de la tâche il y a \d+ s/);
     assert.match(suivi, /extraction Apify en cours, 0 fiches trouvées/);
-    assert.match(suivi, /5 \/ 5 fiches importées/);
+    assert.match(suivi, /6 \/ 6 fiches importées/);
     assert.match(suivi, /Domaine B : prêt à contacter/);
 
     const liste = await (await fetch(`${admin}/?cible=vin`)).text();
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
-    assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*on ne peut pas commander vos vins[\s\S]*contact@127\.0\.0\.1/);
+    // Claude juge les sites lus : son constat remplace celui des règles, un site déjà bon part en « plus tard ».
+    assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10[\s\S]*contact@127\.0\.0\.1/);
+    assert.match(ligne('Domaine F'), /badge-plus_tard[\s\S]*site déjà bon selon Claude \(9\/10\)/);
+    assert.equal(apifyFinal.appels.claude.length, 2); // seulement les sites lus, pas les fiches sans site
+    const appel = apifyFinal.appels.claude[0];
+    assert.equal(appel.cle, 'cle-test');
+    assert.match(appel.beta, /server-side-fallback-2026-07-01/);
+    assert.equal(appel.entree.model, 'claude-opus-5-5');
+    assert.equal(appel.entree.fallbacks, 'default');
+    assert.equal(appel.entree.output_config.effort, 'low');
+    assert.match(apifyFinal.appels.claude.map((a) => a.entree.messages[0].content).join(), /Nos vins/);
     assert.match(ligne('Domaine B'), /badge-nouveau[\s\S]*seulement une fiche Google[\s\S]*contact@domaine-b\.fr/);
     assert.match(ligne('Cave coopérative de Barr'), /badge-hors_cible/);
     // Adresse nominative : à écrire à la main, avec l'email prérempli.
