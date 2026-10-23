@@ -1,6 +1,6 @@
 // Page d'accueil : ce qu'il y a à faire aujourd'hui et où en est la prospection.
 import { DELAI_TERMES_MS, chargerCibles, termesCible } from './cibles';
-import { budget, claudeActif, depenseDuJour } from './claude';
+import { claudeActif, depenseDuJour } from './claude';
 import { echapper, icone, page } from './html';
 
 const JOURS = 14;
@@ -185,7 +185,7 @@ export async function tableau(env: Env) {
     `<header class="page-entete">
       <div><p class="surtitre">${echapper(date.charAt(0).toUpperCase() + date.slice(1))}</p><h1>Tableau de bord</h1>${etat}${
         claude
-          ? `<a class="pastille" href="/recherches"><span class="voyant ${depense >= budget(env) ? 'arret' : 'inactif'}"></span>Claude : ${euros(depense)} sur ${euros(budget(env))} aujourd’hui${depense >= budget(env) ? ', budget atteint' : ''}</a>`
+          ? `<a class="pastille" href="/recherches"><span class="voyant inactif"></span>Claude : ${euros(depense)} aujourd’hui</a>`
           : ''
       }</div>
       <form class="recherche-globale" method="get" action="/prospects" role="search">

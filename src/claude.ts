@@ -7,9 +7,6 @@ import { CONSTATS } from '../scripts/cibles.mjs';
 export const MODELE_PAR_DEFAUT = 'claude-haiku-5-5';
 // Même modèle, nommé à la façon d'OpenRouter (openrouter.ai/models).
 export const MODELE_OPENROUTER = 'anthropic/claude-haiku-5.5';
-// Dépense maximale par jour, en dollars, au-delà de laquelle Claude n'est plus appelé.
-export const BUDGET_PAR_DEFAUT = 1;
-
 // Prix en dollars par million de jetons (entrée, sortie), pour estimer la dépense
 // d'une clé Anthropic ; OpenRouter, lui, renvoie le coût réel de chaque appel.
 const PRIX: [RegExp, number, number][] = [
@@ -23,19 +20,9 @@ function jour() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function budget(env: Env) {
-  return Number(env.CLAUDE_BUDGET_JOUR) || BUDGET_PAR_DEFAUT;
-}
-
 export async function depenseDuJour(env: Env) {
   const ligne = await env.DB.prepare('SELECT valeur FROM etat WHERE cle = ?').bind(`claude_cout:${jour()}`).first<{ valeur: string }>();
   return Number(ligne?.valeur ?? 0);
-}
-
-// Les appels automatiques s'arrêtent une fois le budget du jour atteint ; un clic sur
-// « Chercher avec Claude » passe outre.
-export async function budgetDisponible(env: Env) {
-  return (await depenseDuJour(env)) < budget(env);
 }
 
 async function compter(env: Env, cout: number) {

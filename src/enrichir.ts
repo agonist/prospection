@@ -4,7 +4,7 @@
 import { RAISONS, statutSelonEmail } from '../scripts/base.mjs';
 import { choisirEmail, extraireEmails } from '../scripts/lib.mjs';
 import { telecharger } from '../scripts/analyse.mjs';
-import { budgetDisponible, chercherEmail, claudeActif } from './claude';
+import { chercherEmail, claudeActif } from './claude';
 import { SCORE } from './prospects';
 
 const ENRICHIS_PAR_PASSAGE = 3;
@@ -65,7 +65,7 @@ export const LIBELLES_RESULTAT: Record<string, string> = {
 };
 
 export async function enrichirLot(env: Env, maintenant: string, noter: (niveau: 'info' | 'succes' | 'erreur', message: string) => D1PreparedStatement) {
-  if (!claudeActif(env) || !(await budgetDisponible(env))) return;
+  if (!claudeActif(env)) return;
   const libere = new Date(Date.now() - BLOCAGE_MS).toISOString();
   const { results } = await env.DB.prepare(
     `SELECT id, nom, categorie, ville, adresse, site, telephone, email FROM prospects

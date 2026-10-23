@@ -1,5 +1,5 @@
 import { lancer } from './apify';
-import { budget, claudeActif, depenseDuJour, modele } from './claude';
+import { claudeActif, depenseDuJour, modele } from './claude';
 import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
 
@@ -155,9 +155,7 @@ export async function pageRecherches(url: URL, env: Env) {
           ${etatTache(dernier, travail)}
           ${
             claudeActif(env)
-              ? `<p class="etat-tache"><span class="voyant ${depense >= budget(env) ? 'arret' : ''}"></span>${
-                  depense >= budget(env) ? 'Budget Claude du jour atteint : analyse avec les règles seules jusqu’à demain' : `Claude juge chaque site (${echapper(modele(env))})`
-                }.</p>${barre(depense, budget(env), `${dollars(depense)} dépensés aujourd’hui sur ${dollars(budget(env))}`)}`
+              ? `<p class="etat-tache"><span class="voyant"></span>Claude juge chaque site (${echapper(modele(env))}) <span class="discret">· ${dollars(depense)} aujourd’hui</span></p>`
               : '<p class="etat-tache"><span class="voyant inactif"></span>Claude ne juge pas les sites : ajoute <code>OPENROUTER_API_KEY</code> ou <code>ANTHROPIC_API_KEY</code> dans <code>.dev.vars</code>.</p>'
           }
           ${attente ? barre(0, 1, `${attente} sites en attente d’analyse`) : '<p class="discret">Aucun site en attente d’analyse.</p>'}

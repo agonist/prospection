@@ -7,7 +7,7 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
-import { type Avis, budgetDisponible, claudeActif, juger } from './claude';
+import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot } from './enrichir';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
@@ -171,8 +171,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
-  // Budget du jour atteint : l'analyse continue avec les règles seules.
-  const claude = claudeActif(env) && (await budgetDisponible(env));
+  const claude = claudeActif(env);
 
   const analyses = await Promise.all(
     // Une fiche qui fait planter l'analyse ne doit pas bloquer les autres.
