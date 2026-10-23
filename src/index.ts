@@ -27,7 +27,8 @@ import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
 import { tableau } from './tableau';
-import { pageTraiter, traiter } from './traiter';
+import { actionEmail, pageTraiter, sourceLien, traiter, trouverEmail } from './traiter';
+import { claudeActif } from './claude';
 
 // Redirige après une action, avec un message affiché en bas de l'écran.
 function apres(requete: Request, chemin: string, message: string) {
@@ -112,7 +113,7 @@ async function liste(url: URL, env: Env) {
         <td>${badge(p.statut)}</td>
         <td>${priorite(p.score)}</td>
         <td class="tronque">${
-          p.raison && ['a_verifier', 'a_ecrire', 'a_appeler'].includes(p.statut)
+          p.raison && ['a_verifier', 'a_ecrire', 'a_enrichir', 'sans_email'].includes(p.statut)
             ? `${echapper(p.raison.split(' : ')[0])}${p.constat ? `<div class="discret">${echapper(p.constat)}</div>` : ''}`
             : echapper(p.constat || p.raison)
         }${p.verdict ? `<div>${verdict(p)}</div>` : ''}</td>
@@ -151,7 +152,7 @@ async function liste(url: URL, env: Env) {
         : ''
     }
     <section class="stats">
-      ${stat('nouveau', 'Prêts pour Smartlead')}${stat('a_ecrire', 'À écrire à la main')}${stat('a_appeler', 'À appeler')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}
+      ${stat('nouveau', 'Prêts pour Smartlead')}${stat('a_ecrire', 'À écrire à la main')}${stat('a_enrichir', 'Email à chercher')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}
     </section>
     <form class="outils" method="get" action="/prospects">
       <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
@@ -167,7 +168,7 @@ async function liste(url: URL, env: Env) {
     ${
       reanalysable
         ? `<form class="alerte" method="post" action="/reanalyser">${champsCaches}
-            <p>${filtres.statut === 'a_ecrire' ? 'Le bouton « Écrire » ouvre l’email prérempli et passe la fiche en « En campagne ». ' : ''}${filtres.statut === 'a_appeler' ? 'Pas d’email trouvé, mais un numéro : clique dessus pour appeler. ' : ''}Si les règles d’analyse ont changé, tu peux repasser ces ${nombre} fiches à l’analyse.</p>
+            <p>${filtres.statut === 'a_ecrire' ? 'Le bouton « Écrire » ouvre l’email prérempli et passe la fiche en « En campagne ». ' : ''}${filtres.statut === 'a_enrichir' ? 'Pas d’email sur le site : Claude le cherche sur le web tout seul, quelques fiches par minute. ' : ''}Si les règles d’analyse ont changé, tu peux repasser ces ${nombre} fiches à l’analyse.</p>
             <button type="submit" class="btn contour petit">${icone('activite', 14)}Réanalyser</button>
           </form>`
         : ''
@@ -250,13 +251,22 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
         }
         <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Coordonnées</h2></div>
           <div class="carte-contenu"><dl>
-            ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
-            ${ligne('Téléphone', p.telephone ? `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>` : '')}
+            ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
+            ${ligne('Téléphone', echapper(p.telephone))}
             ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\//, '')) : '<span class="discret">aucun</span>')}
             ${ligne('Fiche Google', p.fiche_google ? `${lienExterne(p.fiche_google, 'Ouvrir')}${p.note_google ? ` <span class="discret">· ${p.note_google} ★ (${p.avis_google ?? 0} avis)</span>` : ''}` : '')}
             ${ligne('Catégorie', echapper(p.categorie))}
             ${ligne('Recherche', echapper(p.recherche))}
           </dl></div></section>
+        ${
+          ['nouveau', 'a_ecrire', 'en_campagne', 'a_repondu', 'maquette', 'client', 'desinscrit'].includes(p.statut)
+            ? ''
+            : `<form class="carte" method="post" action="/p/${encodeURIComponent(p.id)}/email"><div class="carte-entete"><div><h2 class="carte-titre">Email</h2><p class="carte-description">Une adresse saisie ici range la fiche toute seule.</p></div></div>
+                <div class="carte-contenu formulaire">${trouverEmail(p)}<div class="actions-traiter">${
+                  p.email_propose ? `<button type="submit" name="action" value="valider" class="btn">Utiliser ${echapper(p.email_propose)}</button>` : ''
+                }${claudeActif(env) ? `<button type="submit" name="action" value="chercher" class="btn contour" onclick="setTimeout(() => { this.disabled = true; this.textContent = 'Claude cherche sur le web…'; })">${icone('recherches', 14)}Chercher avec Claude</button>` : ''}</div></div></form>`
+        }
         <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Analyse du site</h2></div>
           <div class="carte-contenu"><dl>
             ${ligne('Signaux', signaux ? `<ul class="puces">${signaux}</ul>` : '<span class="discret">aucun</span>')}
@@ -392,6 +402,14 @@ export default {
         .bind(maintenant, maintenant, decodeURIComponent(ecrit[1]))
         .run();
       return new Response(null, { status: 204 });
+    }
+    const email = url.pathname.match(/^\/p\/(.+)\/email$/);
+    if (email && requete.method === 'POST') {
+      const id = decodeURIComponent(email[1]);
+      const donnees = await requete.formData();
+      const resultat = await actionEmail(env, id, String(donnees.get('action') ?? 'email'), String(donnees.get('email') ?? ''));
+      if (resultat instanceof Response) return resultat;
+      return apres(requete, `/p/${encodeURIComponent(id)}`, resultat);
     }
     const fichePath = url.pathname.match(/^\/p\/(.+)$/);
     if (fichePath) {

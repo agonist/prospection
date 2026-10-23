@@ -8,6 +8,7 @@ import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
+import { enrichirLot } from './enrichir';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -148,7 +149,7 @@ type Analyse = { signaux: Record<string, unknown>; constat: { cle: string; phras
 
 // L'avis de Claude, quand il existe, prime sur les règles pour le constat et
 // pour écarter les sites déjà bons ; le choix de l'email reste le même.
-export function decider(analyse: Analyse, avis: Avis | null, telephone: string) {
+export function decider(analyse: Analyse, avis: Avis | null) {
   if (avis?.verdict === 'hors_cible') {
     return { statut: 'hors_cible', raison: `hors cible selon Claude : ${avis.raisons[0] ?? ''}`, constat: null };
   }
@@ -156,17 +157,17 @@ export function decider(analyse: Analyse, avis: Avis | null, telephone: string) 
     return { statut: 'plus_tard', raison: `site déjà bon selon Claude (${avis.qualite}/10) : ${avis.raisons[0] ?? ''}`, constat: null };
   }
   const constat = avis?.constat ? { cle: 'claude', phrase: avis.constat } : analyse.constat;
-  const resultat = statutApresAnalyse({ ...analyse, constat }, telephone);
+  const resultat = statutApresAnalyse({ ...analyse, constat });
   if (resultat.statut === 'nouveau' && avis?.confiance === 'basse') {
     return { statut: 'a_verifier', raison: `Claude n’a pas pu bien juger le site : ${avis.raisons[0] ?? 'page presque vide'}`, constat };
   }
   return { ...resultat, constat };
 }
 
-type AAnalyser = { id: string; cible: string; nom: string; categorie: string; ville: string; site: string; telephone: string; emails_fiche: string };
+type AAnalyser = { id: string; cible: string; nom: string; categorie: string; ville: string; site: string; emails_fiche: string; email: string; email_source: string };
 
 async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: string) {
-  const { results } = await env.DB.prepare("SELECT id, cible, nom, categorie, ville, site, telephone, emails_fiche FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
+  const { results } = await env.DB.prepare("SELECT id, cible, nom, categorie, ville, site, emails_fiche, email, email_source FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
@@ -177,7 +178,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
       Promise.resolve()
         .then(async () => {
           const cible = cibles[p.cible];
-          const analyse = await analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]') }, cible ?? { constats: [] });
+          const analyse = await analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]').concat(p.email_source ? [p.email] : []) }, cible ?? { constats: [] });
           // Claude ne juge que les sites qu'on a pu lire ; sans clé, les règles suffisent.
           let avis: Avis | null = null;
           let erreurClaude = '';
@@ -200,7 +201,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
         .catch((erreur: unknown) => ({ erreur: String(erreur).slice(0, 200) })),
     ),
   );
-  const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', a_ecrire: 'à écrire à la main', a_appeler: 'à appeler', plus_tard: 'plus tard' };
+  const LIBELLES: Record<string, string> = { nouveau: 'prêt à contacter', a_verifier: 'à vérifier', a_ecrire: 'à écrire à la main', a_enrichir: 'pas d’email sur le site, Claude va le chercher', plus_tard: 'plus tard' };
   await env.DB.batch(
     results.flatMap((p, index) => {
       const resultat = analyses[index];
@@ -215,7 +216,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
         ];
       }
       const { avis, erreurClaude, ...analyse } = resultat;
-      const { statut, raison, constat } = decider(analyse, avis, p.telephone);
+      const { statut, raison, constat } = decider(analyse, avis);
       return [
         env.DB.prepare(
           `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?,
@@ -270,5 +271,10 @@ export async function tache(env: Env) {
     await analyserLot(env, cibles, maintenant);
   } catch (erreur) {
     await noter(env, 'erreur', `Analyse des sites : ${String(erreur).slice(0, 300)}`).run();
+  }
+  try {
+    await enrichirLot(env, maintenant, (niveau, message) => noter(env, niveau, message));
+  } catch (erreur) {
+    await noter(env, 'erreur', `Recherche d’emails : ${String(erreur).slice(0, 300)}`).run();
   }
 }

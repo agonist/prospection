@@ -10,7 +10,7 @@ Tout se fait depuis l'admin (un Worker Cloudflare avec une base D1, protégé pa
 
 ## Le tableau de bord
 
-La page d'accueil montre ce qu'il y a à faire aujourd'hui (prêts pour Smartlead, à écrire, à appeler, à vérifier), l'entonnoir des fiches trouvées jusqu'aux clients, l'activité des 14 derniers jours, les chiffres par cible et les avis de Claude. La liste complète est sous **Prospects**. La touche `/` place le curseur dans la recherche.
+La page d'accueil montre ce qu'il y a à faire aujourd'hui (prêts pour Smartlead, à écrire, email à chercher, à vérifier), l'entonnoir des fiches trouvées jusqu'aux clients, l'activité des 14 derniers jours, les chiffres par cible et les avis de Claude. La liste complète est sous **Prospects**. La touche `/` place le curseur dans la recherche.
 
 ## Claude juge chaque site
 
@@ -24,6 +24,16 @@ Une clé [OpenRouter](https://openrouter.ai) marche aussi : `OPENROUTER_API_KEY`
 
 Claude ne voit pas le rendu visuel, seulement le texte et la structure. Sans clé, l'analyse se fait avec les règles seules, comme avant. Le modèle se change avec `CLAUDE_MODELE` (par défaut `claude-opus-5-5`, environ 2 centimes par site ; `claude-haiku-5-5` coûte environ 40 fois moins). Pour faire juger les fiches déjà analysées, ouvrir un onglet et cliquer sur **Réanalyser**.
 
+## Pas d'email sur le site
+
+On n'appelle pas : tout passe par email. Une fiche sans email sur son site part en **Email à chercher**. Avec une clé OpenRouter ou Anthropic, Claude cherche l'adresse sur le web (Pages Jaunes, Facebook, annuaires, mentions légales…), 3 fiches par passage de la tâche. Il doit citer la page où il l'a lue, et l'outil vérifie que l'adresse y figure vraiment :
+
+- adresse retrouvée dans la page : la fiche est rangée comme à l'analyse (Prêt à contacter, ou À écrire si elle est nominative) ;
+- adresse que l'outil n'a pas pu retrouver dans la page : **À vérifier**, avec un bouton pour l'utiliser après avoir regardé la source ;
+- rien trouvé : **Sans email**.
+
+Dans **Traiter** et sur chaque fiche, un bloc « Trouver l'email » donne des liens tout prêts (site, Google, Pages Jaunes, Facebook, fiche Google) et un champ pour coller l'adresse trouvée : la fiche se range toute seule. Le bouton « Chercher avec Claude » lance la recherche tout de suite. La recherche web coûte plus cher que le jugement d'un site (plusieurs pages lues par fiche) : surveiller la facture sur les premières dizaines.
+
 ## Les statuts
 
 | Statut | Posé par | Sens |
@@ -31,8 +41,9 @@ Claude ne voit pas le rendu visuel, seulement le texte et la structure. Sans cl�
 | En analyse | la recherche | Fiche importée, site pas encore visité |
 | Prêt à contacter | l'import | Adresse générique et constat trouvés |
 | À écrire | l'import | Adresse nominative : le bouton « Écrire » ouvre l'email prérempli (modèle dans **Cibles**) et passe la fiche en campagne |
-| À appeler | l'import | Pas d'email trouvé, mais un téléphone |
-| À vérifier | l'import | Site injoignable, adresse sur un autre domaine (peut-être l'agence web), ni email ni téléphone |
+| Email à chercher | l'import | Pas d'email sur le site : Claude le cherche sur le web, tout seul |
+| À vérifier | l'import | Site injoignable, adresse sur un autre domaine (peut-être l'agence web), adresse proposée par Claude mais pas prouvée |
+| Sans email | la recherche d'email | Ni le site ni le web ne donnent d'adresse |
 | Plus tard | l'import | Le site a l'air correct aujourd'hui |
 | Hors cible | l'import | Coopérative, enseigne, fermé… |
 | En campagne | l'export Smartlead | Envoyé dans Smartlead |
@@ -92,9 +103,9 @@ La liste des prospects se filtre aussi par catégorie Google (« Producteur de v
 3. **Exporter pour Smartlead** télécharge le CSV et passe les fiches en « En campagne ». Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche.
 4. Dans Smartlead : importer le CSV, faire correspondre `recherche`, `constat` et `source` à des variables personnalisées, puis lancer la vérification des emails.
 
-**Traiter** (en haut des onglets Prêt à contacter, À écrire, À appeler et À vérifier) montre une fiche à la fois, la plus prioritaire d'abord, avec l'aperçu du site et les actions sur les touches 1 à 5. La priorité (sur 100) favorise les entreprises bien notées et avec beaucoup d'avis dont la présence en ligne est faible. Dans la liste, cocher des fiches permet de changer leur statut d'un coup.
+**Traiter** (en haut des onglets Prêt à contacter, À écrire, Email à chercher, À vérifier et Sans email) montre une fiche à la fois, la plus prioritaire d'abord, avec l'aperçu du site et les actions sur les touches 1 à 5. La priorité (sur 100) favorise les entreprises bien notées et avec beaucoup d'avis dont la présence en ligne est faible. Dans la liste, cocher des fiches permet de changer leur statut d'un coup.
 
-Dans les onglets « À écrire », « À appeler » et « À vérifier », la raison de chaque fiche est affichée, avec un filtre par raison. **Réanalyser** repasse les fiches de l'onglet à l'analyse, par exemple après un changement des règles.
+Dans les onglets « À écrire », « Email à chercher » et « À vérifier », la raison de chaque fiche est affichée, avec un filtre par raison. **Réanalyser** repasse les fiches de l'onglet à l'analyse, par exemple après un changement des règles.
 
 Quand quelqu'un répond, mettre à jour son statut dans l'admin, et noter ce qui s'est dit.
 

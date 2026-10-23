@@ -12,7 +12,7 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [] };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [] };
   const serveur = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const json = (corps, entetes = {}) => {
@@ -51,6 +51,13 @@ function demarrerFauxApify(fiches) {
       req.on('data', (morceau) => (corps += morceau));
       req.on('end', () => {
         const entree = JSON.parse(corps);
+        if (entree.plugins) {
+          // Recherche d'email : la preuve est dans les citations renvoyées par la recherche web.
+          appels.recherches.push({ cle: req.headers.authorization, entree });
+          const contenu = JSON.stringify({ email: 'bonjour@domaine-e.fr', source: 'https://annuaire.example/domaine-e' });
+          const annotations = [{ type: 'url_citation', url_citation: { url: 'https://annuaire.example/domaine-e', content: 'Domaine E, Barr. Écrire à bonjour@domaine-e.fr' } }];
+          return json({ id: 'gen-2', model: entree.model, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: contenu, annotations } }] });
+        }
         appels.claude.push({ cle: req.headers.authorization, entree });
         const avis = avisPour(entree.messages.find((m) => m.role === 'user').content);
         json({ id: 'gen-1', model: entree.model, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '```json\n' + JSON.stringify(avis) + '\n```' } }] });
@@ -62,8 +69,25 @@ function demarrerFauxApify(fiches) {
       req.on('data', (morceau) => (corps += morceau));
       req.on('end', () => {
         const entree = JSON.parse(corps);
-        appels.claude.push({ beta: req.headers['anthropic-beta'], cle: req.headers['x-api-key'], entree });
-        const avis = avisPour(entree.messages[0].content);
+        if (!entree.tools) appels.claude.push({ beta: req.headers['anthropic-beta'], cle: req.headers['x-api-key'], entree });
+        const texte = entree.messages[0].content;
+        const reponse = (content, stop_reason = 'end_turn') =>
+          json({ id: 'msg_1', type: 'message', role: 'assistant', model: entree.model, content, stop_reason, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+        if (entree.tools) {
+          // Recherche d'email avec les outils web : E est trouvé (après une pause), G proposé sans preuve, H introuvable.
+          appels.recherches.push({ beta: req.headers['anthropic-beta'], entree });
+          const port = serveur.address().port;
+          if (texte.includes('Entreprise : Domaine E') && entree.messages.length === 1) {
+            return reponse([{ type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'Domaine E Andlau email' } }], 'pause_turn');
+          }
+          const trouvaille = texte.includes('Entreprise : Domaine E')
+            ? { email: 'bonjour@domaine-e.fr', source: `http://127.0.0.1:${port}/annuaire-e/` }
+            : texte.includes('Entreprise : Domaine G')
+              ? { email: 'devine@domaine-g.fr', source: `http://127.0.0.1:${port}/annuaire-g/` }
+              : { email: '', source: '' };
+          return reponse([{ type: 'text', text: `Voici : ${JSON.stringify(trouvaille)}` }]);
+        }
+        const avis = avisPour(texte);
         json({
           id: 'msg_1',
           type: 'message',
@@ -76,6 +100,10 @@ function demarrerFauxApify(fiches) {
         });
       });
       return;
+    }
+    if (url.pathname === '/annuaire-e/' || url.pathname === '/annuaire-g/') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end(url.pathname === '/annuaire-e/' ? '<p>Domaine E, Andlau : bonjour@domaine-e.fr</p>' : '<p>Domaine G, Barr : pas d’adresse ici</p>');
     }
     if (url.pathname === '/site-f/') {
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -115,6 +143,8 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     { placeId: 'D', title: 'Domaine D', city: 'Barr', emails: ['claire.martin@gmail.com'] },
     { placeId: 'E', title: 'Domaine E', city: 'Andlau', phone: '03 89 00 00 00', emails: ['mailto:'] },
     { placeId: 'F', title: 'Domaine F', city: 'Barr' },
+    { placeId: 'G', title: 'Domaine G', city: 'Barr' },
+    { placeId: 'H', title: 'Domaine H', city: 'Andlau' },
   ];
   const apifyFinal = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${apifyFinal.port}/site-a/`;
@@ -155,7 +185,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     const suivi = await (await fetch(`${admin}/recherches`)).text();
     assert.match(suivi, /Dernier passage de la tâche il y a \d+ s/);
     assert.match(suivi, /extraction Apify en cours, 0 fiches trouvées/);
-    assert.match(suivi, /6 \/ 6 fiches importées/);
+    assert.match(suivi, /8 \/ 8 fiches importées/);
     assert.match(suivi, /Domaine B : prêt à contacter/);
 
     const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
@@ -175,22 +205,28 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Cave coopérative de Barr'), /badge-hors_cible/);
     // Adresse nominative : à écrire à la main, avec l'email prérempli.
     assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Domaine%20D[^"]*j&#39;ai%20remarqu%C3%A9%20que%20vous%20n&#39;avez%20pas%20encore%20de%20site/);
-    // Pas d'email mais un téléphone : à appeler.
-    assert.match(ligne('Domaine E'), /badge-a_appeler[\s\S]*href="tel:03 89 00 00 00"/);
-    assert.match(await (await fetch(`${admin}/prospects?statut=a_appeler`)).text(), /pas d’email trouvé<em>1<\/em>|Réanalyser/);
+    // Pas d'email sur le site : Claude le cherche sur le web, et l'adresse doit figurer dans la page citée.
+    assert.equal(apifyFinal.appels.recherches.length, 4); // E deux fois (pause_turn), G et H
+    assert.ok(apifyFinal.appels.recherches.every((a) => a.entree.tools.some((t) => t.type === 'web_search_20260209')));
+    assert.equal(apifyFinal.appels.recherches.find((a) => a.entree.messages.length === 2).entree.messages[1].role, 'assistant');
+    assert.match(ligne('Domaine E'), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /lu sur 127\.0\.0\.1/);
+    assert.match(ligne('Domaine G'), /badge-a_verifier[\s\S]*proposé : devine@domaine-g\.fr/);
+    assert.match(ligne('Domaine H'), /badge-sans_email/);
+    assert.doesNotMatch(liste, /tel:/);
 
-    // Mode traitement : une fiche à la fois, « Pas de réponse » note l'appel et passe à la suivante.
-    const traitement = await (await fetch(`${admin}/traiter?statut=a_appeler`)).text();
-    assert.match(traitement, /<h1>Domaine E<\/h1>/);
-    assert.match(traitement, /Pas de réponse<kbd>3<\/kbd>/);
-    const apres = await fetch(`${admin}/traiter`, {
-      method: 'POST',
-      body: new URLSearchParams({ id: 'E', action: 'sans_reponse', statut: 'a_appeler', note: '' }),
-      redirect: 'manual',
-    });
-    assert.match(apres.headers.get('location'), /\/traiter\?statut=a_appeler&sauf=E$/);
-    assert.match(await (await fetch(apres.headers.get('location'))).text(), /Plus rien à traiter ici/);
-    assert.match(await (await fetch(`${admin}/p/E`)).text(), /Appel sans réponse le/);
+    // Mode traitement : valider l'adresse proposée, ou coller celle trouvée soi-même.
+    const traitement = await (await fetch(`${admin}/traiter?statut=a_verifier`)).text();
+    assert.match(traitement, /<h1>Domaine G<\/h1>/);
+    assert.match(traitement, /Utiliser devine@domaine-g\.fr<kbd>1<\/kbd>/);
+    assert.match(traitement, /pagesjaunes\.fr\/annuaire\/chercherlespros\?quoiqui=Domaine%20G/);
+    const valide = await fetch(`${admin}/traiter`, { method: 'POST', body: new URLSearchParams({ id: 'G', action: 'valider', statut: 'a_verifier', note: '' }), redirect: 'manual' });
+    assert.match(valide.headers.get('location'), /\/traiter\?statut=a_verifier&message=devine%40domaine-g\.fr\+enregistr/);
+    assert.match(await (await fetch(`${admin}/p/G`)).text(), /badge-nouveau/);
+    const invalide = await fetch(`${admin}/traiter`, { method: 'POST', body: new URLSearchParams({ id: 'H', action: 'email', email: 'pas une adresse', statut: 'sans_email' }), redirect: 'manual' });
+    assert.match(invalide.headers.get('location'), /n%E2%80%99est\+pas\+une\+adresse/);
+    await fetch(`${admin}/traiter`, { method: 'POST', body: new URLSearchParams({ id: 'H', action: 'email', email: ' Contact@Domaine-H.fr ', statut: 'sans_email' }), redirect: 'manual' });
+    assert.match(await (await fetch(`${admin}/p/H`)).text(), /badge-nouveau[\s\S]*contact@domaine-h\.fr[\s\S]*saisi à la main/);
     assert.match(await (await fetch(`${admin}/traiter?statut=a_ecrire`)).text(), /<h1>Domaine D<\/h1>[\s\S]*href="mailto:claire\.martin@gmail\.com/);
 
     // Changement de statut groupé depuis la liste.
@@ -202,19 +238,21 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.equal((await fetch(`${admin}/p/D/ecrit`, { method: 'POST' })).status, 204);
     assert.match(await (await fetch(`${admin}/p/D`)).text(), /badge-en_campagne/);
 
-    // « Réanalyser » renvoie les fiches à appeler en analyse, et elles y retombent.
-    await fetch(`${admin}/reanalyser`, { method: 'POST', body: new URLSearchParams({ statut: 'a_appeler' }), redirect: 'manual' });
+    // « Réanalyser » garde l'email trouvé sur le web, sans relancer de recherche.
+    const recherchesAvant = apifyFinal.appels.recherches.length;
+    await fetch(`${admin}/reanalyser`, { method: 'POST', body: new URLSearchParams({ statut: 'nouveau' }), redirect: 'manual' });
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_analyser/);
     await passage();
-    assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_appeler/);
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
+    assert.equal(apifyFinal.appels.recherches.length, recherchesAvant);
 
     // Tableau de bord en page d'accueil ; les anciens liens filtrés mènent à la liste.
     const accueil = await (await fetch(admin)).text();
     assert.match(accueil, /<h1>Tableau de bord<\/h1>/);
-    assert.match(accueil, /<strong>1<\/strong><span>À appeler<\/span>/);
+    assert.match(accueil, /<strong>0<\/strong><span>Email à chercher<\/span>/);
     assert.match(accueil, /Trouvés sur Google Maps/);
-    const ancien = await fetch(`${admin}/?statut=a_appeler`, { redirect: 'manual' });
-    assert.equal(ancien.headers.get('location'), `${admin}/prospects?statut=a_appeler`);
+    const ancien = await fetch(`${admin}/?statut=a_verifier`, { redirect: 'manual' });
+    assert.equal(ancien.headers.get('location'), `${admin}/prospects?statut=a_verifier`);
 
     // La même recherche n'est pas relancée tant qu'on ne force pas.
     const rejouee = await fetch(`${admin}/recherches`, {
@@ -270,6 +308,7 @@ test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 1
   const fiches = [
     { placeId: 'A', title: 'Domaine A', city: 'Barr', categoryName: 'Producteur de vin' },
     { placeId: 'F', title: 'Domaine F', city: 'Barr' },
+    { placeId: 'E', title: 'Domaine E', city: 'Barr' },
   ];
   const faux = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${faux.port}/site-a/`;
@@ -304,6 +343,10 @@ test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 1
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
     assert.match(ligne('Domaine A'), /votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10/);
     assert.match(ligne('Domaine F'), /badge-plus_tard[\s\S]*site déjà bon selon Claude \(9\/10\)/);
+    // Recherche d'email par la recherche web d'OpenRouter, prouvée par ses citations.
+    assert.equal(faux.appels.recherches.length, 1);
+    assert.equal(faux.appels.recherches[0].entree.plugins[0].id, 'web');
+    assert.match(ligne('Domaine E'), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();

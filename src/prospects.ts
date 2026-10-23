@@ -6,8 +6,9 @@ export const STATUTS: Record<string, string> = {
   a_analyser: 'En analyse',
   nouveau: 'Prêt à contacter',
   a_ecrire: 'À écrire',
-  a_appeler: 'À appeler',
+  a_enrichir: 'Email à chercher',
   a_verifier: 'À vérifier',
+  sans_email: 'Sans email',
   plus_tard: 'Plus tard',
   hors_cible: 'Hors cible',
   en_campagne: 'En campagne',
@@ -28,7 +29,7 @@ export const NATURES: Record<string, string> = {
 export const PAR_PAGE = 100;
 export const TROIS_ANS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
 // Statuts qu'on efface au bout de 3 ans sans nouvelle (recommandation CNIL pour la prospection).
-export const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
+export const PURGEABLES = ['a_analyser', 'nouveau', 'a_verifier', 'a_ecrire', 'a_enrichir', 'sans_email', 'plus_tard', 'hors_cible', 'en_campagne', 'pas_interesse'];
 
 export type Prospect = {
   id: string;
@@ -45,6 +46,8 @@ export type Prospect = {
   recherche: string;
   email: string;
   email_statut: string;
+  email_source: string;
+  email_propose: string;
   constat_cle: string;
   constat: string;
   signaux: string;
@@ -64,7 +67,7 @@ export type Prospect = {
 export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string };
 
 // Statuts que « Réanalyser » renvoie en analyse.
-export const REANALYSABLES = ['nouveau', 'a_verifier', 'a_ecrire', 'a_appeler', 'plus_tard'];
+export const REANALYSABLES = ['nouveau', 'a_verifier', 'a_ecrire', 'a_enrichir', 'sans_email', 'plus_tard'];
 
 export function lireFiltres(url: URL): Filtres {
   return {
@@ -135,21 +138,35 @@ export function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCi
     return `<a class="btn contour petit" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 14)}Écrire</a><div class="discret">${echapper(p.email)}</div>`;
   }
   if (p.email) return echapper(p.email);
-  if (p.telephone) return `<a class="avec-icone" href="tel:${echapper(p.telephone)}">${icone('telephone', 14)}${echapper(p.telephone)}</a>`;
-  return '<span class="discret">aucun</span>';
+  if (p.email_propose) return `<span class="discret">proposé : ${echapper(p.email_propose)}</span>`;
+  return '<span class="discret">aucun email</span>';
 }
 
+
+// Liens pour chercher soi-même l'email d'une fiche.
+export function liensRecherche(p: Pick<Prospect, 'nom' | 'ville' | 'site' | 'fiche_google'>) {
+  const externe = (href: string, texte: string) =>
+    `<a class="btn contour petit" href="${echapper(href)}" target="_blank" rel="noreferrer">${echapper(texte)}${icone('externe', 12)}</a>`;
+  const q = encodeURIComponent;
+  return [
+    p.site ? externe(p.site, 'Son site') : '',
+    externe(`https://www.google.com/search?q=${q(`"${p.nom}" ${p.ville} email`)}`, 'Google'),
+    externe(`https://www.pagesjaunes.fr/annuaire/chercherlespros?quoiqui=${q(p.nom)}&ou=${q(p.ville)}`, 'Pages Jaunes'),
+    externe(`https://www.facebook.com/search/top?q=${q(`${p.nom} ${p.ville}`)}`, 'Facebook'),
+    p.fiche_google ? externe(p.fiche_google, 'Fiche Google') : '',
+  ].join('');
+}
 
 // Priorité sur 100 : une entreprise bien installée (beaucoup d'avis, bonne note)
 // avec une présence en ligne faible est le meilleur prospect.
 export const SCORE = `(CASE WHEN constat_cle IN ('pasDeSite', 'reseauSocial', 'annuaire') THEN 40 WHEN constat_cle <> '' THEN 20 ELSE 0 END
   + MIN(COALESCE(avis_google, 0), 60) / 2
   + CASE WHEN note_google >= 4.5 THEN 10 WHEN note_google >= 4 THEN 5 ELSE 0 END
-  + CASE WHEN email_statut IN ('generique', 'entreprise') THEN 15 WHEN email <> '' THEN 10 WHEN telephone <> '' THEN 5 ELSE 0 END
+  + CASE WHEN email_statut IN ('generique', 'entreprise') THEN 15 WHEN email <> '' THEN 10 ELSE 0 END
   + CASE verdict WHEN 'faible' THEN 10 WHEN 'moyen' THEN 0 WHEN 'bon' THEN -20 ELSE 0 END)`;
 
 // Files qu'on traite une fiche à la fois, triées par priorité.
-export const TRAITABLES = ['nouveau', 'a_ecrire', 'a_appeler', 'a_verifier'];
+export const TRAITABLES = ['nouveau', 'a_ecrire', 'a_enrichir', 'a_verifier', 'sans_email'];
 
 export function priorite(score: number | undefined) {
   if (score == null) return '';

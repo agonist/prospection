@@ -91,7 +91,7 @@ code { font: 12px/1 "Geist Mono", ui-monospace, monospace; background: var(--att
 .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--anneau); outline-offset: 2px; }
 
 /* Champs */
-input[type=text], input[type=search], input[type=number], select, textarea { font: inherit; color: inherit; background: var(--fond); border: 1px solid var(--champ); border-radius: 6px; height: 36px; padding: 0 12px; box-shadow: 0 1px 2px rgb(0 0 0 / .04); width: 100%; }
+input[type=text], input[type=search], input[type=email], input[type=number], select, textarea { font: inherit; color: inherit; background: var(--fond); border: 1px solid var(--champ); border-radius: 6px; height: 36px; padding: 0 12px; box-shadow: 0 1px 2px rgb(0 0 0 / .04); width: 100%; }
 textarea { height: auto; padding: 8px 12px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--attenue-texte); }
 input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--primaire); margin: 0; }
@@ -152,7 +152,15 @@ td a:hover { text-decoration: underline; }
 .badge-nouveau, .badge-client { background: color-mix(in srgb, var(--succes) 14%, transparent); color: var(--succes); }
 .badge-a_verifier { background: color-mix(in srgb, var(--attention) 16%, transparent); color: var(--attention); }
 .badge-a_ecrire { background: color-mix(in srgb, #0ea5e9 14%, transparent); color: #0284c7; }
-.badge-a_appeler { background: color-mix(in srgb, #f97316 14%, transparent); color: #ea580c; }
+.badge-a_enrichir { background: color-mix(in srgb, #8b5cf6 14%, transparent); color: #7c3aed; }
+.badge-sans_email { color: var(--attenue-texte); }
+.consigne { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: var(--rayon); background: var(--attenue); font-size: 13px; }
+.consigne .icone { margin-top: 3px; color: var(--attenue-texte); }
+.trouver-email { display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--champ); border-radius: var(--rayon); }
+.liens-recherche { display: flex; flex-wrap: wrap; gap: 6px; }
+.ligne-email { display: flex; gap: 8px; }
+.ligne-email input { flex: 1; min-width: 0; }
+.trouver-email p { margin: 0; }
 .motifs { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 16px; }
 .motifs a { border: 1px solid var(--bord); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--attenue-texte); text-decoration: none; }
 .motifs a.actif { background: var(--texte); color: var(--fond); border-color: var(--texte); }
@@ -255,7 +263,7 @@ kbd { font: 11px/1.6 "Geist Mono", ui-monospace, monospace; color: var(--attenue
 .a-faire-icone { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--attenue); }
 .a-faire-nouveau { color: var(--succes); background: color-mix(in srgb, var(--succes) 12%, transparent); }
 .a-faire-a_ecrire { color: #0284c7; background: color-mix(in srgb, #0ea5e9 12%, transparent); }
-.a-faire-a_appeler { color: #ea580c; background: color-mix(in srgb, #f97316 12%, transparent); }
+.a-faire-a_enrichir { color: #7c3aed; background: color-mix(in srgb, #8b5cf6 12%, transparent); }
 .a-faire-a_verifier { color: var(--attention); background: color-mix(in srgb, var(--attention) 12%, transparent); }
 .a-faire-chiffre strong { display: block; font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .a-faire-chiffre span { font-weight: 500; }

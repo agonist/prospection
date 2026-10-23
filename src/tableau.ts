@@ -1,11 +1,12 @@
 // Page d'accueil : ce qu'il y a à faire aujourd'hui et où en est la prospection.
 import { DELAI_TERMES_MS, chargerCibles, termesCible } from './cibles';
+import { claudeActif } from './claude';
 import { echapper, icone, page } from './html';
 
 const JOURS = 14;
 const REPONSES = "('a_repondu', 'maquette', 'client')";
 
-type ParCible = { cible: string; n: number; prets: number; ecrire: number; appeler: number; verifier: number; contactes: number; reponses: number; clients: number };
+type ParCible = { cible: string; n: number; prets: number; ecrire: number; enrichir: number; verifier: number; contactes: number; reponses: number; clients: number };
 
 function nombre(n: number) {
   return n.toLocaleString('fr-FR');
@@ -63,7 +64,7 @@ export async function tableau(env: Env) {
           COALESCE(SUM(contacte_le IS NOT NULL), 0) AS contactes, COALESCE(SUM(statut IN ${REPONSES}), 0) AS reponses, COALESCE(SUM(statut = 'client'), 0) AS clients FROM prospects`,
       ),
       env.DB.prepare(
-        `SELECT cible, COUNT(*) AS n, SUM(statut = 'nouveau') AS prets, SUM(statut = 'a_ecrire') AS ecrire, SUM(statut = 'a_appeler') AS appeler, SUM(statut = 'a_verifier') AS verifier,
+        `SELECT cible, COUNT(*) AS n, SUM(statut = 'nouveau') AS prets, SUM(statut = 'a_ecrire') AS ecrire, SUM(statut = 'a_enrichir') AS enrichir, SUM(statut = 'a_verifier') AS verifier,
           SUM(contacte_le IS NOT NULL) AS contactes, SUM(statut IN ${REPONSES}) AS reponses, SUM(statut = 'client') AS clients FROM prospects GROUP BY cible`,
       ),
       env.DB.prepare('SELECT terme FROM termes WHERE lance_le > ?').bind(new Date(Date.now() - DELAI_TERMES_MS).toISOString()),
@@ -83,12 +84,19 @@ export async function tableau(env: Env) {
   const faits = new Set((couverts.results as { terme: string }[]).map(({ terme }) => terme));
   const parJour = (r: D1Result) => new Map((r.results as { jour: string; n: number }[]).map(({ jour, n }) => [jour, n]));
 
+  const claude = claudeActif(env);
   const date = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const actif = passage && Date.now() - Date.parse(passage) < 5 * 60_000;
   const etat = `<span class="pastille"><span class="voyant ${actif ? '' : 'inactif'}"></span>${
     actif
-      ? recherches || compte('a_analyser')
-        ? `${recherches ? `${recherches} recherche${recherches > 1 ? 's' : ''} en cours` : ''}${recherches && compte('a_analyser') ? ' · ' : ''}${compte('a_analyser') ? `${nombre(compte('a_analyser'))} sites à analyser` : ''}`
+      ? recherches || compte('a_analyser') || (claude && compte('a_enrichir'))
+        ? [
+            recherches ? `${recherches} recherche${recherches > 1 ? 's' : ''} en cours` : '',
+            compte('a_analyser') ? `${nombre(compte('a_analyser'))} sites à analyser` : '',
+            claude && compte('a_enrichir') ? `${nombre(compte('a_enrichir'))} emails à chercher` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
         : 'Tâche active, rien en attente'
       : 'Tâche à l’arrêt'
   }</span>`;
@@ -96,8 +104,15 @@ export async function tableau(env: Env) {
   const aFaire = [
     { statut: 'nouveau', titre: 'Prêts pour Smartlead', texte: 'Adresse générique ou au nom de l’entreprise. À exporter en campagne.', icone: 'telecharger' as const, action: 'Exporter', href: '/prospects?statut=nouveau' },
     { statut: 'a_ecrire', titre: 'À écrire à la main', texte: 'Adresse nominative : un email écrit depuis Tuta, un par un.', icone: 'email' as const, action: 'Écrire', href: '/traiter?statut=a_ecrire' },
-    { statut: 'a_appeler', titre: 'À appeler', texte: 'Pas d’email, mais un téléphone. Le plus chaud en premier.', icone: 'telephone' as const, action: 'Appeler', href: '/traiter?statut=a_appeler' },
-    { statut: 'a_verifier', titre: 'À vérifier', texte: 'Site injoignable, doute de Claude ou adresse sur un autre domaine.', icone: 'activite' as const, action: 'Vérifier', href: '/traiter?statut=a_verifier' },
+    {
+      statut: 'a_enrichir',
+      titre: 'Email à chercher',
+      texte: claude ? 'Pas d’email sur le site : Claude le cherche sur le web, tout seul.' : 'Pas d’email sur le site. Ajoute une clé OpenRouter pour que Claude le cherche.',
+      icone: 'recherches' as const,
+      action: 'Chercher',
+      href: '/traiter?statut=a_enrichir',
+    },
+    { statut: 'a_verifier', titre: 'À vérifier', texte: 'Un email à confirmer ou corriger, un site injoignable ou un doute de Claude.', icone: 'activite' as const, action: 'Vérifier', href: '/traiter?statut=a_verifier' },
   ]
     .map((t) => {
       const n = compte(t.statut);
@@ -142,7 +157,7 @@ export async function tableau(env: Env) {
         <td class="chiffre">${nombre(n?.n ?? 0)}</td>
         <td class="chiffre">${lien('nouveau', n?.prets)}</td>
         <td class="chiffre">${lien('a_ecrire', n?.ecrire)}</td>
-        <td class="chiffre">${lien('a_appeler', n?.appeler)}</td>
+        <td class="chiffre">${lien('a_enrichir', n?.enrichir)}</td>
         <td class="chiffre">${nombre(n?.contactes ?? 0)}</td>
         <td class="chiffre">${nombre(n?.reponses ?? 0)}</td>
         <td class="chiffre">${nombre(n?.clients ?? 0)}</td>
@@ -189,7 +204,7 @@ export async function tableau(env: Env) {
     <section class="carte bloc">
       <div class="carte-entete"><div><h2 class="carte-titre">Par cible</h2><p class="carte-description">La couverture compte les recherches métier × commune faites ces 6 derniers mois.</p></div><a class="btn contour petit" href="/cibles">${icone('cibles', 14)}Gérer les cibles</a></div>
       <div class="tableau"><table>
-        <thead><tr><th>Cible</th><th class="chiffre">Fiches</th><th class="chiffre">Prêts</th><th class="chiffre">À écrire</th><th class="chiffre">À appeler</th><th class="chiffre">Contactés</th><th class="chiffre">Réponses</th><th class="chiffre">Clients</th><th>Couverture</th></tr></thead>
+        <thead><tr><th>Cible</th><th class="chiffre">Fiches</th><th class="chiffre">Prêts</th><th class="chiffre">À écrire</th><th class="chiffre">Email à chercher</th><th class="chiffre">Contactés</th><th class="chiffre">Réponses</th><th class="chiffre">Clients</th><th>Couverture</th></tr></thead>
         <tbody>${rangees}</tbody>
       </table></div>
     </section>

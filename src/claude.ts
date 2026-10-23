@@ -161,3 +161,109 @@ export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
   if (!texte || texte.type !== 'text') return null;
   return lireAvis(texte.text);
 }
+
+// Recherche d'email : Claude cherche sur le web l'adresse de contact d'une
+// entreprise dont le site n'en montre pas. Il doit citer la page où il l'a lue ;
+// l'adresse est ensuite vérifiée dans cette page avant d'être utilisée.
+
+export type Trouvaille = { email: string; source: string; preuve: string };
+
+type Entreprise = { nom: string; categorie: string; ville: string; adresse: string; site: string; telephone: string };
+
+const SYSTEME_EMAIL = `Tu aides C'est bien beau, un studio web alsacien, à trouver l'adresse email de contact d'une petite entreprise, pour lui écrire un email de prospection.
+
+Cherche sur le web : son site (pages contact, mentions légales, à propos), sa page Facebook ou Instagram, Pages Jaunes, l'office de tourisme, les annuaires de son métier, la presse locale.
+
+Règles strictes :
+- Ne rends qu'une adresse que tu as lue telle quelle dans une page, et donne l'URL exacte de cette page.
+- N'invente jamais et ne devine jamais une adresse : pas de contact@ ou info@ supposé à partir du nom de domaine.
+- Vérifie que la page parle bien de cette entreprise (même nom, même commune).
+- Préfère une adresse générique (contact@, info@, le nom de l'entreprise) à l'adresse personnelle d'une personne.
+- Si tu ne trouves rien de sûr, rends une adresse vide. C'est une bonne réponse.
+
+Réponds uniquement avec un objet JSON : {"email": "...", "source": "..."}`;
+
+function demandeEmail(e: Entreprise) {
+  return `Entreprise : ${e.nom}
+Catégorie Google : ${e.categorie || 'inconnue'}
+Commune : ${e.ville || 'inconnue'}
+Adresse : ${e.adresse || 'inconnue'}
+Site : ${e.site || 'aucun'}
+Téléphone : ${e.telephone || 'inconnu'}`;
+}
+
+function lireTrouvaille(texte: string, preuve: string): Trouvaille | null {
+  const debut = texte.indexOf('{');
+  const fin = texte.lastIndexOf('}');
+  if (debut < 0 || fin <= debut) return null;
+  const { email, source } = JSON.parse(texte.slice(debut, fin + 1)) as { email?: string; source?: string };
+  const propre = String(email ?? '').trim().toLowerCase().replace(/^mailto:/, '');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(propre)) return null;
+  return { email: propre, source: String(source ?? '').trim(), preuve };
+}
+
+async function chercherOpenRouter(env: Env, e: Entreprise): Promise<Trouvaille | null> {
+  const base = String(env.OPENROUTER_API || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+  const reponse = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'content-type': 'application/json', 'x-title': 'Prospection C\'est bien beau' },
+    body: JSON.stringify({
+      model: modele(env),
+      max_tokens: 8000,
+      messages: [
+        { role: 'system', content: SYSTEME_EMAIL },
+        { role: 'user', content: demandeEmail(e) },
+      ],
+      // Recherche web d'OpenRouter : les résultats sont ajoutés à la demande.
+      plugins: [{ id: 'web', max_results: 5 }],
+      reasoning: { effort: 'low' },
+    }),
+  });
+  const corps = (await reponse.json().catch(() => null)) as {
+    error?: { message?: string };
+    choices?: { message?: { content?: string | null; refusal?: string | null; annotations?: unknown[] } }[];
+  } | null;
+  if (!reponse.ok || corps?.error) throw new Error(`OpenRouter ${reponse.status} : ${corps?.error?.message ?? 'réponse illisible'}`);
+  const message = corps?.choices?.[0]?.message;
+  if (!message?.content || message.refusal) return null;
+  return lireTrouvaille(message.content, JSON.stringify(message.annotations ?? []));
+}
+
+async function chercherAnthropic(env: Env, e: Entreprise): Promise<Trouvaille | null> {
+  const client = new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+    ...(env.ANTHROPIC_API ? { baseURL: String(env.ANTHROPIC_API) } : {}),
+  });
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: demandeEmail(e) }];
+  let preuve = '';
+  // Les outils web tournent chez Anthropic ; une longue recherche peut s'arrêter en « pause_turn » et se reprend.
+  for (let tour = 0; tour < 4; tour++) {
+    const reponse = await client.beta.messages.create({
+      model: modele(env),
+      max_tokens: 8000,
+      system: SYSTEME_EMAIL,
+      messages,
+      tools: [
+        { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 4 },
+      ],
+      output_config: { effort: 'medium' },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    });
+    // Le texte des pages lues par web_fetch sert de preuve.
+    preuve += JSON.stringify(reponse.content.filter((bloc) => bloc.type !== 'text'));
+    if (reponse.stop_reason === 'pause_turn') {
+      messages.push({ role: 'assistant', content: reponse.content });
+      continue;
+    }
+    if (reponse.stop_reason === 'refusal') return null;
+    const texte = reponse.content.filter((bloc) => bloc.type === 'text').map((bloc) => (bloc.type === 'text' ? bloc.text : '')).join('');
+    return lireTrouvaille(texte, preuve);
+  }
+  return null;
+}
+
+export function chercherEmail(env: Env, e: Entreprise) {
+  return openrouter(env) ? chercherOpenRouter(env, e) : chercherAnthropic(env, e);
+}

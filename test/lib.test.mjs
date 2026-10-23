@@ -33,8 +33,8 @@ test('distingue l’adresse de l’entreprise de celle d’une personne', () => 
 
 test('range les fiches sans email ou nominatives dans des files à traiter', () => {
   const avecConstat = { signaux: {}, constat: { cle: 'pasDeSite' } };
-  assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'absente' }, '03 88 00 00 00').statut, 'a_appeler');
-  assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'absente' }, '').statut, 'a_verifier');
+  // Pas d'appels : sans email, la fiche part en recherche d'email, téléphone ou pas.
+  assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'absente' }).statut, 'a_enrichir');
   assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'nominative' }).statut, 'a_ecrire');
   assert.equal(statutApresAnalyse({ ...avecConstat, statut: 'entreprise' }).statut, 'nouveau');
 });

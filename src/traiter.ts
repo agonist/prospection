@@ -1,37 +1,69 @@
 // Mode traitement : une fiche à la fois, la plus prioritaire d'abord, avec des
-// raccourcis clavier pour vider une file (à écrire, à appeler, à vérifier…).
+// raccourcis clavier pour vider une file (à écrire, email à chercher, à vérifier…).
 import { brouillon, chargerCibles } from './cibles';
+import { claudeActif } from './claude';
+import { type AEnrichir, appliquerEmail, enregistrer, enrichir, LIBELLES_RESULTAT } from './enrichir';
 import { echapper, icone, page } from './html';
-import { SCORE, STATUTS, TRAITABLES, type Prospect, avisDetaille, badge, changerStatut, clauses, lienFiltres, lireFiltres, requeteFiltres, priorite } from './prospects';
+import {
+  SCORE,
+  STATUTS,
+  TRAITABLES,
+  type Prospect,
+  avisDetaille,
+  badge,
+  changerStatut,
+  clauses,
+  liensRecherche,
+  lienFiltres,
+  lireFiltres,
+  requeteFiltres,
+  priorite,
+} from './prospects';
+import { statutSelonEmail } from '../scripts/base.mjs';
 
 type Action = { valeur: string; libelle: string; style?: string };
 
-// « passer » garde la fiche telle quelle ; « sans_reponse » note l'appel puis passe.
-const ACTIONS: Record<string, Action[]> = {
-  nouveau: [
-    { valeur: 'passer', libelle: 'Bon pour Smartlead' },
-    { valeur: 'a_ecrire', libelle: 'Plutôt écrire à la main', style: 'contour' },
-    { valeur: 'hors_cible', libelle: 'Pas pour nous', style: 'contour' },
-  ],
-  a_ecrire: [
-    { valeur: 'ecrire', libelle: 'Écrire' },
-    { valeur: 'pas_interesse', libelle: 'Pas pour nous', style: 'contour' },
-    { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' },
-  ],
-  a_appeler: [
-    { valeur: 'a_repondu', libelle: 'Intéressé' },
-    { valeur: 'pas_interesse', libelle: 'Pas intéressé', style: 'contour' },
-    { valeur: 'sans_reponse', libelle: 'Pas de réponse', style: 'contour' },
-    { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' },
-  ],
-  a_verifier: [
-    { valeur: 'nouveau', libelle: 'OK pour Smartlead' },
-    { valeur: 'a_ecrire', libelle: 'À écrire', style: 'contour' },
-    { valeur: 'a_appeler', libelle: 'À appeler', style: 'contour' },
-    { valeur: 'hors_cible', libelle: 'Pas pour nous', style: 'contour' },
-    { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' },
-  ],
+// Ce qu'on attend de Bas dans chaque file, en une phrase.
+const CONSIGNES: Record<string, string> = {
+  nouveau: 'Adresse générique ou au nom de l’entreprise : la fiche part dans Smartlead à l’export. Vérifie juste que le constat tient.',
+  a_ecrire: 'Adresse nominative : la CNIL demande un email écrit à la main. « Écrire » ouvre le brouillon prérempli.',
+  a_enrichir: 'Pas d’email sur le site. Claude le cherche tout seul sur le web, quelques fiches par minute. Tu peux aussi le trouver toi-même et le coller ici.',
+  a_verifier: 'Quelque chose cloche : la raison est en orange. Le plus souvent il manque un bon email : colle-le, valide celui proposé, ou demande à Claude de chercher.',
+  sans_email: 'Ni le site ni le web ne donnent d’email. Cherche à la main si la fiche en vaut la peine, sinon laisse-la de côté.',
 };
+
+const SANS_CLAUDE = 'Pas d’email sur le site. Ajoute OPENROUTER_API_KEY dans .dev.vars pour que Claude le cherche tout seul. En attendant, les liens ci-dessous aident à le trouver.';
+
+// « passer » garde la fiche telle quelle et passe à la suivante.
+function actions(p: Prospect, claude: boolean): Action[] {
+  const chercher = (libelle: string) => (claude ? [{ valeur: 'chercher', libelle, style: 'contour' }] : []);
+  switch (p.statut) {
+    case 'nouveau':
+      return [
+        { valeur: 'passer', libelle: 'Bon pour Smartlead' },
+        { valeur: 'a_ecrire', libelle: 'Plutôt écrire à la main', style: 'contour' },
+        { valeur: 'hors_cible', libelle: 'Pas pour nous', style: 'contour' },
+      ];
+    case 'a_ecrire':
+      return [
+        { valeur: 'ecrire', libelle: 'Écrire' },
+        { valeur: 'pas_interesse', libelle: 'Pas pour nous', style: 'contour' },
+        { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' },
+      ];
+    case 'a_verifier':
+      return [
+        ...(p.email_propose ? [{ valeur: 'valider', libelle: `Utiliser ${p.email_propose}` }] : []),
+        ...(p.email ? [{ valeur: 'garder', libelle: `Garder ${p.email}`, style: p.email_propose ? 'contour' : '' }] : []),
+        ...chercher('Chercher l’email avec Claude'),
+        { valeur: 'hors_cible', libelle: 'Pas pour nous', style: 'contour' },
+        { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' },
+      ];
+    case 'sans_email':
+      return [...chercher('Chercher encore avec Claude'), { valeur: 'plus_tard', libelle: 'Laisser de côté', style: 'contour' }, { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' }];
+    default:
+      return [...chercher('Chercher maintenant avec Claude'), { valeur: 'hors_cible', libelle: 'Pas pour nous', style: 'contour' }, { valeur: 'passer', libelle: 'Plus tard', style: 'fantome' }];
+  }
+}
 
 // Les fiches passées pendant la séance, gardées dans l'adresse (D1 limite le nombre de paramètres).
 function lireSauf(valeur: string | null) {
@@ -43,6 +75,25 @@ function adresse(url: URL, sauf: string[]) {
   const params = new URLSearchParams(requeteFiltres(filtres));
   if (sauf.length) params.set('sauf', sauf.join(','));
   return `/traiter?${params}`;
+}
+
+export function sourceLien(source: string) {
+  if (!/^https?:\/\//.test(source)) return echapper(source || 'source inconnue');
+  return `<a href="${echapper(source)}" target="_blank" rel="noreferrer">lu sur ${echapper(new URL(source).hostname.replace(/^www\./, ''))}</a>`;
+}
+
+// Chercher l'email soi-même : liens tout prêts et un champ pour coller l'adresse.
+export function trouverEmail(p: Prospect) {
+  return `<div class="trouver-email">
+    <strong>Trouver l’email soi-même</strong>
+    <div class="liens-recherche">${liensRecherche(p)}</div>
+    <div class="ligne-email">
+      <input type="email" name="email" placeholder="contact@…" aria-label="Email trouvé" autocomplete="off"
+        onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.nextElementSibling.click(); }">
+      <button type="submit" name="action" value="email" class="btn contour">${icone('valide', 14)}Enregistrer l’email</button>
+    </div>
+    <p class="discret">Générique ou au nom de l’entreprise : la fiche passe en « Prêt à contacter ». Nominative : en « À écrire ».</p>
+  </div>`;
 }
 
 export async function pageTraiter(url: URL, env: Env) {
@@ -75,14 +126,17 @@ export async function pageTraiter(url: URL, env: Env) {
     .map(([cle, valeur]) => `<input type="hidden" name="${cle}" value="${echapper(valeur)}">`)
     .join('');
   const suivanteUrl = adresse(url, sauf);
-  const boutons = (ACTIONS[filtres.statut] ?? [])
+  const claude = claudeActif(env);
+  const liste = actions(p, claude);
+  const boutons = liste
     .map(({ valeur, libelle, style }, index) => {
       const touche = `<kbd>${index + 1}</kbd>`;
       if (valeur === 'ecrire') {
         return `<a class="btn" data-touche="${index + 1}" href="${echapper(brouillon(cible, p))}"
           onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true }); setTimeout(() => location.assign(${echapper(JSON.stringify(suivanteUrl))}), 800)">${icone('email', 14)}${libelle}${touche}</a>`;
       }
-      return `<button type="submit" name="action" value="${valeur}" class="btn ${style ?? ''}" data-touche="${index + 1}">${libelle}${touche}</button>`;
+      const attente = valeur === 'chercher' ? ` onclick="setTimeout(() => { this.disabled = true; this.textContent = 'Claude cherche sur le web…'; })"` : '';
+      return `<button type="submit" name="action" value="${valeur}" class="btn ${style ?? ''}" data-touche="${index + 1}"${attente}>${valeur === 'chercher' ? icone('recherches', 14) : ''}${echapper(libelle)}${touche}</button>`;
     })
     .join('');
 
@@ -102,19 +156,21 @@ export async function pageTraiter(url: URL, env: Env) {
     <div class="traiter">
       <form method="post" action="/traiter" class="carte" id="traitement">${champs}
         <div class="carte-contenu formulaire">
+          <p class="consigne">${icone('activite', 14)}${p.statut === 'a_enrichir' && !claude ? SANS_CLAUDE : (CONSIGNES[p.statut] ?? '')}</p>
+          ${p.raison && p.statut !== 'a_enrichir' ? `<div class="alerte attention"><p>${echapper(p.raison)}</p></div>` : ''}
+          <div class="actions-traiter">${boutons}</div>
           ${p.constat ? `<div><span class="discret">J’ai remarqué que…</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
-          ${p.raison ? `<div class="alerte attention"><p>${echapper(p.raison)}</p></div>` : ''}
           ${avisDetaille(p)}
           <dl>
-            ${ligne('Email', p.email ? `${echapper(p.email)} <span class="discret">${echapper(p.email_statut)}</span>` : '<span class="discret">aucun</span>')}
-            ${ligne('Téléphone', p.telephone ? `<a class="avec-icone gros" href="tel:${echapper(p.telephone)}">${icone('telephone', 16)}${echapper(p.telephone)}</a>` : '')}
+            ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> <span class="discret">${echapper(p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
             ${ligne('Adresse', echapper(p.adresse))}
             ${ligne('Recherche', echapper(p.recherche))}
             ${ligne('Fiche', `<a href="/p/${encodeURIComponent(p.id)}">Fiche complète</a>${p.fiche_google ? ` · <a href="${echapper(p.fiche_google)}" target="_blank" rel="noreferrer">Google</a>` : ''}`)}
           </dl>
+          ${p.statut === 'nouveau' || p.statut === 'a_ecrire' ? '' : trouverEmail(p)}
           <div class="champ"><label for="note">Note</label><textarea id="note" name="note" rows="3" placeholder="Ce qui s’est dit, une idée de maquette…">${echapper(p.note)}</textarea></div>
-          <div class="actions-traiter">${boutons}</div>
-          <p class="discret">Raccourcis : les chiffres 1 à ${(ACTIONS[filtres.statut] ?? []).length} (hors de la note).</p>
+          <p class="discret">Raccourcis : les chiffres 1 à ${liste.length} (hors des champs).</p>
         </div>
       </form>
       ${apercu}
@@ -129,6 +185,42 @@ export async function pageTraiter(url: URL, env: Env) {
   );
 }
 
+// Trouver, saisir ou valider l'email d'une fiche. Rend le message à afficher.
+export async function actionEmail(env: Env, id: string, action: string, emailSaisi: string): Promise<string | Response> {
+  const maintenant = new Date().toISOString();
+  const p = await env.DB.prepare('SELECT * FROM prospects WHERE id = ?').bind(id).first<Prospect>();
+  if (!p) return new Response('Fiche introuvable', { status: 404 });
+  if (action === 'chercher') {
+    try {
+      const r = await enrichir(env, p as AEnrichir);
+      await enregistrer(env, id, r, maintenant).run();
+      return `${p.nom} : ${LIBELLES_RESULTAT[r.statut] ?? r.statut}${r.email ? ` (${r.email})` : r.email_propose ? ` (proposé : ${r.email_propose})` : ''}`;
+    } catch (erreur) {
+      return `La recherche a échoué : ${String(erreur).slice(0, 150)}`;
+    }
+  } else if (action === 'garder') {
+    // Bas a vérifié l'adresse : une adresse sur un autre domaine devient celle de l'entreprise.
+    const nature = p.email_statut === 'autre_domaine' ? 'entreprise' : p.email_statut;
+    const { statut, raison } = statutSelonEmail(nature);
+    await env.DB.prepare('UPDATE prospects SET email_statut = ?, statut = ?, raison = ?, statut_le = ?, email_propose = ? WHERE id = ?')
+      .bind(nature, statut, raison, maintenant, '', id)
+      .run();
+    return `${p.email} gardé`;
+  } else {
+    const email = action === 'valider' ? p.email_propose : emailSaisi;
+    const source = action === 'valider' ? p.email_source : 'saisi à la main';
+    const r = appliquerEmail(email.trim().toLowerCase(), p, source);
+    if (!r) {
+      return `« ${email} » n’est pas une adresse email`;
+    } else {
+      // Une adresse vérifiée à la main n'a pas à repasser par « à vérifier ».
+      const sure = r.statut === 'a_verifier' ? { ...r, ...statutSelonEmail('entreprise'), email_statut: 'entreprise' } : r;
+      await enregistrer(env, id, sure, maintenant).run();
+      return `${sure.email} enregistré : ${STATUTS[sure.statut]}`;
+    }
+  }
+}
+
 export async function traiter(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const url = new URL(requete.url);
@@ -137,16 +229,23 @@ export async function traiter(requete: Request, env: Env) {
   const action = String(donnees.get('action') ?? '');
   const note = donnees.get('note') == null ? null : String(donnees.get('note'));
   const sauf = lireSauf(String(donnees.get('sauf') ?? ''));
+  const maintenant = new Date().toISOString();
+  let message = '';
 
-  if (action === 'passer' || action === 'sans_reponse') {
-    const jour = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
-    const texte = action === 'sans_reponse' ? [note?.trim(), `Appel sans réponse le ${jour}.`].filter(Boolean).join('\n') : note;
-    await env.DB.prepare('UPDATE prospects SET note = COALESCE(?, note) WHERE id = ?').bind(texte, id).run();
+  if (['email', 'valider', 'garder', 'chercher'].includes(action)) {
+    if (note != null) await env.DB.prepare('UPDATE prospects SET note = ? WHERE id = ?').bind(note, id).run();
+    const resultat = await actionEmail(env, id, action, String(donnees.get('email') ?? ''));
+    if (resultat instanceof Response) return resultat;
+    message = resultat;
+  } else if (action === 'passer') {
+    await env.DB.prepare('UPDATE prospects SET note = COALESCE(?, note) WHERE id = ?').bind(note, id).run();
     sauf.push(id);
   } else if (action in STATUTS && action !== 'a_analyser') {
     await changerStatut(env, id, action, note).run();
   } else {
     return new Response('Action inconnue', { status: 400 });
   }
-  return Response.redirect(new URL(adresse(url, sauf), requete.url).toString(), 303);
+  const suite = new URL(adresse(url, sauf), requete.url);
+  if (message) suite.searchParams.set('message', message);
+  return Response.redirect(suite.toString(), 303);
 }
