@@ -6,6 +6,8 @@ APIFY_TOKEN=
 ANTHROPIC_API_KEY=
 # Ou une clé OpenRouter (openrouter.ai → Keys) : elle passe avant la clé Anthropic.
 OPENROUTER_API_KEY=
-# Modèle utilisé. Par défaut claude-opus-5-5, ou anthropic/claude-opus-5.5 avec OpenRouter.
-# Haiku (claude-haiku-5-5, anthropic/claude-haiku-5.5 sur OpenRouter) coûte environ 40 fois moins cher.
+# Modèle utilisé. Par défaut Haiku : claude-haiku-5-5, ou anthropic/claude-haiku-5.5 avec OpenRouter.
+# Opus (claude-opus-5-5) juge un peu mieux mais coûte environ 40 fois plus cher.
 CLAUDE_MODELE=
+# Dépense maximale par jour en dollars (1 par défaut). Au-delà, Claude n'est plus appelé jusqu'au lendemain.
+CLAUDE_BUDGET_JOUR=

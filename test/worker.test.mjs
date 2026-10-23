@@ -60,7 +60,7 @@ function demarrerFauxApify(fiches) {
         }
         appels.claude.push({ cle: req.headers.authorization, entree });
         const avis = avisPour(entree.messages.find((m) => m.role === 'user').content);
-        json({ id: 'gen-1', model: entree.model, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '```json\n' + JSON.stringify(avis) + '\n```' } }] });
+        json({ id: 'gen-1', model: entree.model, usage: { cost: 0.3 }, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '```json\n' + JSON.stringify(avis) + '\n```' } }] });
       });
       return;
     }
@@ -196,9 +196,11 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.equal(apifyFinal.appels.claude.length, 2); // seulement les sites lus, pas les fiches sans site
     const appel = apifyFinal.appels.claude[0];
     assert.equal(appel.cle, 'cle-test');
-    assert.match(appel.beta, /server-side-fallback-2026-07-01/);
-    assert.equal(appel.entree.model, 'claude-opus-5-5');
-    assert.equal(appel.entree.fallbacks, 'default');
+    // Haiku par défaut, sans relance serveur (Haiku ne la prend pas).
+    assert.equal(appel.entree.model, 'claude-haiku-5-5');
+    assert.equal(appel.entree.fallbacks, undefined);
+    assert.doesNotMatch(appel.beta ?? '', /server-side-fallback/);
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /dépensés aujourd’hui sur 1,00 \$/);
     assert.equal(appel.entree.output_config.effort, 'low');
     assert.match(apifyFinal.appels.claude.map((a) => a.entree.messages[0].content).join(), /Nos vins/);
     assert.match(ligne('Domaine B'), /badge-nouveau[\s\S]*seulement une fiche Google[\s\S]*contact@domaine-b\.fr/);
@@ -317,7 +319,7 @@ test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 1
   const vars = join(persistance, '.dev.vars');
   writeFileSync(
     vars,
-    `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nANTHROPIC_API_KEY=cle-anthropic\nOPENROUTER_API_KEY=cle-openrouter\nOPENROUTER_API=http://127.0.0.1:${faux.port}/openrouter/\n`,
+    `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nANTHROPIC_API_KEY=cle-anthropic\nOPENROUTER_API_KEY=cle-openrouter\nOPENROUTER_API=http://127.0.0.1:${faux.port}/openrouter/\nCLAUDE_BUDGET_JOUR=0.5\n`,
   );
   execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
   const port = PORT_WORKER + 1;
@@ -329,24 +331,30 @@ test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 1
   try {
     const admin = `http://127.0.0.1:${port}`;
     await attendre(admin);
-    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Claude juge chaque site \(anthropic\/claude-opus-5\.5\)/);
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Claude juge chaque site \(anthropic\/claude-haiku-5\.5\)/);
     await fetch(`${admin}/recherches`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', metiers: 'domaine viticole', communes: 'Barr', max: '20' }), redirect: 'manual' });
     for (let i = 0; i < 3; i++) await fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
 
     assert.equal(faux.appels.claude.length, 2);
     const appel = faux.appels.claude[0];
     assert.equal(appel.cle, 'Bearer cle-openrouter');
-    assert.equal(appel.entree.model, 'anthropic/claude-opus-5.5');
+    assert.equal(appel.entree.model, 'anthropic/claude-haiku-5.5');
+    assert.deepEqual(appel.entree.usage, { include: true });
     assert.equal(appel.entree.response_format.json_schema.strict, true);
     assert.equal(appel.entree.messages[0].role, 'system');
     const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
     assert.match(ligne('Domaine A'), /votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10/);
     assert.match(ligne('Domaine F'), /badge-plus_tard[\s\S]*site déjà bon selon Claude \(9\/10\)/);
-    // Recherche d'email par la recherche web d'OpenRouter, prouvée par ses citations.
+    // Les deux jugements ont coûté 0,60 $ pour un budget de 0,50 $ : la recherche d'email automatique attend demain.
+    assert.equal(faux.appels.recherches.length, 0);
+    assert.match(ligne('Domaine E'), /badge-a_enrichir/);
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Budget Claude du jour atteint[\s\S]*0,60 \$ dépensés aujourd’hui sur 0,50 \$/);
+    // Un clic sur « Chercher avec Claude » passe outre : recherche web d'OpenRouter, prouvée par ses citations.
+    await fetch(`${admin}/traiter`, { method: 'POST', body: new URLSearchParams({ id: 'E', action: 'chercher', statut: 'a_enrichir' }), redirect: 'manual' });
     assert.equal(faux.appels.recherches.length, 1);
     assert.equal(faux.appels.recherches[0].entree.plugins[0].id, 'web');
-    assert.match(ligne('Domaine E'), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
+    assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();

@@ -3,9 +3,78 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CONSTATS } from '../scripts/cibles.mjs';
 
-export const MODELE_PAR_DEFAUT = 'claude-opus-5-5';
+// Haiku suffit pour trier des sites et chercher une adresse, pour beaucoup moins cher qu'Opus.
+export const MODELE_PAR_DEFAUT = 'claude-haiku-5-5';
 // Même modèle, nommé à la façon d'OpenRouter (openrouter.ai/models).
-export const MODELE_OPENROUTER = 'anthropic/claude-opus-5.5';
+export const MODELE_OPENROUTER = 'anthropic/claude-haiku-5.5';
+// Dépense maximale par jour, en dollars, au-delà de laquelle Claude n'est plus appelé.
+export const BUDGET_PAR_DEFAUT = 1;
+
+// Prix en dollars par million de jetons (entrée, sortie), pour estimer la dépense
+// d'une clé Anthropic ; OpenRouter, lui, renvoie le coût réel de chaque appel.
+const PRIX: [RegExp, number, number][] = [
+  [/haiku/, 0.1, 0.5],
+  [/sonnet/, 1, 5],
+  [/opus/, 4, 20],
+];
+const PRIX_RECHERCHE_WEB = 0.01;
+
+function jour() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function budget(env: Env) {
+  return Number(env.CLAUDE_BUDGET_JOUR) || BUDGET_PAR_DEFAUT;
+}
+
+export async function depenseDuJour(env: Env) {
+  const ligne = await env.DB.prepare('SELECT valeur FROM etat WHERE cle = ?').bind(`claude_cout:${jour()}`).first<{ valeur: string }>();
+  return Number(ligne?.valeur ?? 0);
+}
+
+// Les appels automatiques s'arrêtent une fois le budget du jour atteint ; un clic sur
+// « Chercher avec Claude » passe outre.
+export async function budgetDisponible(env: Env) {
+  return (await depenseDuJour(env)) < budget(env);
+}
+
+async function compter(env: Env, cout: number) {
+  if (!cout) return;
+  await env.DB.prepare('INSERT INTO etat (cle, valeur) VALUES (?, ?) ON CONFLICT (cle) DO UPDATE SET valeur = CAST(etat.valeur AS REAL) + CAST(excluded.valeur AS REAL)')
+    .bind(`claude_cout:${jour()}`, String(cout))
+    .run();
+}
+
+function coutAnthropic(env: Env, usage: { input_tokens?: number | null; output_tokens?: number | null; server_tool_use?: { web_search_requests?: number | null } | null }) {
+  const [, entree, sortie] = PRIX.find(([motif]) => motif.test(modele(env))) ?? [null, 0, 0];
+  return ((usage.input_tokens ?? 0) * entree + (usage.output_tokens ?? 0) * sortie) / 1e6 + (usage.server_tool_use?.web_search_requests ?? 0) * PRIX_RECHERCHE_WEB;
+}
+
+// Haiku n'a pas de relance serveur sur un autre modèle : l'option n'est envoyée qu'aux autres.
+function secours(env: Env) {
+  return /haiku/.test(modele(env)) ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const };
+}
+
+// Corps d'une réponse OpenRouter, avec le coût réel quand on le demande (usage.include).
+type ReponseOpenRouter = {
+  error?: { message?: string };
+  usage?: { cost?: number };
+  choices?: { finish_reason?: string; message?: { content?: string | null; refusal?: string | null; annotations?: unknown[] } }[];
+};
+
+async function appelerOpenRouter(env: Env, corps: Record<string, unknown>) {
+  const base = String(env.OPENROUTER_API || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+  const reponse = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'content-type': 'application/json', 'x-title': 'Prospection C\'est bien beau' },
+    body: JSON.stringify({ model: modele(env), usage: { include: true }, ...corps }),
+  });
+  const resultat = (await reponse.json().catch(() => null)) as ReponseOpenRouter | null;
+  if (!reponse.ok || resultat?.error) throw new Error(`OpenRouter ${reponse.status} : ${resultat?.error?.message ?? 'réponse illisible'}`);
+  await compter(env, Number(resultat?.usage?.cost ?? 0));
+  const message = resultat?.choices?.[0]?.message;
+  return message?.content && !message.refusal ? message : null;
+}
 
 export type Avis = {
   verdict: 'bon' | 'moyen' | 'faible' | 'hors_cible';
@@ -74,11 +143,11 @@ Description : ${d.page.description || '(aucune)'}
 Poids du HTML : ${d.page.poidsKo} Ko
 Indices techniques : ${d.page.indices.join(', ') || 'aucun'}
 Signaux relevés par nos règles : ${signaux.join(', ') || 'aucun'}
-Liens : ${d.page.liens.join(' | ') || '(aucun)'}
+Liens : ${d.page.liens.slice(0, 20).join(' | ') || '(aucun)'}
 
 Texte visible :
 <texte>
-${d.page.texte || '(vide)'}
+${d.page.texte.slice(0, 3000) || '(vide)'}
 </texte>`;
 }
 
@@ -109,34 +178,17 @@ function lireAvis(texte: string): Avis {
 }
 
 async function jugerOpenRouter(env: Env, demande: Demande): Promise<Avis | null> {
-  const base = String(env.OPENROUTER_API || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
-  const reponse = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-      'content-type': 'application/json',
-      'x-title': 'Prospection C\'est bien beau',
-    },
-    body: JSON.stringify({
-      model: modele(env),
-      max_tokens: 8000,
-      messages: [
-        { role: 'system', content: SYSTEME },
-        { role: 'user', content: message(demande) },
-      ],
-      response_format: { type: 'json_schema', json_schema: { name: 'avis', strict: true, schema: SCHEMA } },
-      // Tâche de tri : peu de réflexion suffit.
-      reasoning: { effort: 'low' },
-    }),
+  const reponse = await appelerOpenRouter(env, {
+    max_tokens: 2000,
+    messages: [
+      { role: 'system', content: SYSTEME },
+      { role: 'user', content: message(demande) },
+    ],
+    response_format: { type: 'json_schema', json_schema: { name: 'avis', strict: true, schema: SCHEMA } },
+    // Tâche de tri : peu de réflexion suffit.
+    reasoning: { effort: 'low' },
   });
-  const corps = (await reponse.json().catch(() => null)) as {
-    error?: { message?: string };
-    choices?: { finish_reason?: string; message?: { content?: string | null; refusal?: string | null } }[];
-  } | null;
-  if (!reponse.ok || corps?.error) throw new Error(`OpenRouter ${reponse.status} : ${corps?.error?.message ?? 'réponse illisible'}`);
-  const choix = corps?.choices?.[0];
-  if (!choix?.message?.content || choix.message.refusal) return null;
-  return lireAvis(choix.message.content);
+  return reponse ? lireAvis(String(reponse.content)) : null;
 }
 
 export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
@@ -147,15 +199,15 @@ export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
   });
   const reponse = await client.beta.messages.create({
     model: modele(env),
-    max_tokens: 8000,
+    max_tokens: 2000,
     system: SYSTEME,
     messages: [{ role: 'user', content: message(demande) }],
     // Tâche de tri : peu de réflexion suffit.
     output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
     // Si le modèle refuse (filtre de sécurité), l'API relance la demande sur un autre modèle.
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...secours(env),
   });
+  await compter(env, coutAnthropic(env, reponse.usage));
   if (reponse.stop_reason === 'refusal') return null;
   const texte = reponse.content.find((bloc) => bloc.type === 'text');
   if (!texte || texte.type !== 'text') return null;
@@ -203,30 +255,17 @@ function lireTrouvaille(texte: string, preuve: string): Trouvaille | null {
 }
 
 async function chercherOpenRouter(env: Env, e: Entreprise): Promise<Trouvaille | null> {
-  const base = String(env.OPENROUTER_API || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
-  const reponse = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'content-type': 'application/json', 'x-title': 'Prospection C\'est bien beau' },
-    body: JSON.stringify({
-      model: modele(env),
-      max_tokens: 8000,
-      messages: [
-        { role: 'system', content: SYSTEME_EMAIL },
-        { role: 'user', content: demandeEmail(e) },
-      ],
-      // Recherche web d'OpenRouter : les résultats sont ajoutés à la demande.
-      plugins: [{ id: 'web', max_results: 5 }],
-      reasoning: { effort: 'low' },
-    }),
+  const reponse = await appelerOpenRouter(env, {
+    max_tokens: 2000,
+    messages: [
+      { role: 'system', content: SYSTEME_EMAIL },
+      { role: 'user', content: demandeEmail(e) },
+    ],
+    // Recherche web d'OpenRouter : les résultats sont ajoutés à la demande (chaque résultat est payant).
+    plugins: [{ id: 'web', max_results: 3 }],
+    reasoning: { effort: 'low' },
   });
-  const corps = (await reponse.json().catch(() => null)) as {
-    error?: { message?: string };
-    choices?: { message?: { content?: string | null; refusal?: string | null; annotations?: unknown[] } }[];
-  } | null;
-  if (!reponse.ok || corps?.error) throw new Error(`OpenRouter ${reponse.status} : ${corps?.error?.message ?? 'réponse illisible'}`);
-  const message = corps?.choices?.[0]?.message;
-  if (!message?.content || message.refusal) return null;
-  return lireTrouvaille(message.content, JSON.stringify(message.annotations ?? []));
+  return reponse ? lireTrouvaille(String(reponse.content), JSON.stringify(reponse.annotations ?? [])) : null;
 }
 
 async function chercherAnthropic(env: Env, e: Entreprise): Promise<Trouvaille | null> {
@@ -237,20 +276,20 @@ async function chercherAnthropic(env: Env, e: Entreprise): Promise<Trouvaille | 
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: demandeEmail(e) }];
   let preuve = '';
   // Les outils web tournent chez Anthropic ; une longue recherche peut s'arrêter en « pause_turn » et se reprend.
-  for (let tour = 0; tour < 4; tour++) {
+  for (let tour = 0; tour < 3; tour++) {
     const reponse = await client.beta.messages.create({
       model: modele(env),
-      max_tokens: 8000,
+      max_tokens: 4000,
       system: SYSTEME_EMAIL,
       messages,
       tools: [
-        { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
-        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 4 },
+        { type: 'web_search_20260209', name: 'web_search', max_uses: 3 },
+        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 2 },
       ],
-      output_config: { effort: 'medium' },
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      ...secours(env),
     });
+    await compter(env, coutAnthropic(env, reponse.usage));
     // Le texte des pages lues par web_fetch sert de preuve.
     preuve += JSON.stringify(reponse.content.filter((bloc) => bloc.type !== 'text'));
     if (reponse.stop_reason === 'pause_turn') {

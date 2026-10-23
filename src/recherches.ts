@@ -1,5 +1,5 @@
 import { lancer } from './apify';
-import { claudeActif, modele } from './claude';
+import { budget, claudeActif, depenseDuJour, modele } from './claude';
 import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
 
@@ -22,6 +22,10 @@ type Recherche = {
   erreur: string;
   cree_le: string;
 };
+
+function dollars(montant: number) {
+  return `${montant.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+}
 
 function jour(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
@@ -80,6 +84,7 @@ export async function pageRecherches(url: URL, env: Env) {
     env.DB.prepare('SELECT * FROM journal ORDER BY id DESC LIMIT 60'),
   ]);
   const attente = (enAnalyse.results[0] as { n: number }).n;
+  const depense = claudeActif(env) ? await depenseDuJour(env) : 0;
   const dernier = (passage.results[0] as { valeur: string } | undefined)?.valeur;
   const enCours = (recherches.results as Recherche[]).some((r) => r.statut === 'en_cours' || r.statut === 'import');
   const travail = enCours || attente > 0;
@@ -150,7 +155,9 @@ export async function pageRecherches(url: URL, env: Env) {
           ${etatTache(dernier, travail)}
           ${
             claudeActif(env)
-              ? `<p class="etat-tache"><span class="voyant"></span>Claude juge chaque site (${echapper(modele(env))}).</p>`
+              ? `<p class="etat-tache"><span class="voyant ${depense >= budget(env) ? 'arret' : ''}"></span>${
+                  depense >= budget(env) ? 'Budget Claude du jour atteint : analyse avec les règles seules jusqu’à demain' : `Claude juge chaque site (${echapper(modele(env))})`
+                }.</p>${barre(depense, budget(env), `${dollars(depense)} dépensés aujourd’hui sur ${dollars(budget(env))}`)}`
               : '<p class="etat-tache"><span class="voyant inactif"></span>Claude ne juge pas les sites : ajoute <code>OPENROUTER_API_KEY</code> ou <code>ANTHROPIC_API_KEY</code> dans <code>.dev.vars</code>.</p>'
           }
           ${attente ? barre(0, 1, `${attente} sites en attente d’analyse`) : '<p class="discret">Aucun site en attente d’analyse.</p>'}

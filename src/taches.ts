@@ -7,7 +7,7 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
-import { type Avis, claudeActif, juger } from './claude';
+import { type Avis, budgetDisponible, claudeActif, juger } from './claude';
 import { enrichirLot } from './enrichir';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
@@ -171,6 +171,8 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
+  // Budget du jour atteint : l'analyse continue avec les règles seules.
+  const claude = claudeActif(env) && (await budgetDisponible(env));
 
   const analyses = await Promise.all(
     // Une fiche qui fait planter l'analyse ne doit pas bloquer les autres.
@@ -182,7 +184,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
           // Claude ne juge que les sites qu'on a pu lire ; sans clé, les règles suffisent.
           let avis: Avis | null = null;
           let erreurClaude = '';
-          if (analyse.page && claudeActif(env)) {
+          if (analyse.page && claude) {
             avis = await juger(env, {
               nom: p.nom,
               categorie: p.categorie,
@@ -253,6 +255,7 @@ export async function tache(env: Env) {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO etat (cle, valeur) VALUES ('dernier_passage', ?) ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur").bind(maintenant),
     env.DB.prepare('DELETE FROM journal WHERE le < ?').bind(semaine),
+    env.DB.prepare("DELETE FROM etat WHERE cle LIKE 'claude_cout:%' AND cle < ?").bind(`claude_cout:${semaine.slice(0, 10)}`),
   ]);
 
   const cibles = await chargerCibles(env);

@@ -1,6 +1,6 @@
 // Page d'accueil : ce qu'il y a à faire aujourd'hui et où en est la prospection.
 import { DELAI_TERMES_MS, chargerCibles, termesCible } from './cibles';
-import { claudeActif } from './claude';
+import { budget, claudeActif, depenseDuJour } from './claude';
 import { echapper, icone, page } from './html';
 
 const JOURS = 14;
@@ -85,6 +85,8 @@ export async function tableau(env: Env) {
   const parJour = (r: D1Result) => new Map((r.results as { jour: string; n: number }[]).map(({ jour, n }) => [jour, n]));
 
   const claude = claudeActif(env);
+  const depense = claude ? await depenseDuJour(env) : 0;
+  const euros = (n: number) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
   const date = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const actif = passage && Date.now() - Date.parse(passage) < 5 * 60_000;
   const etat = `<span class="pastille"><span class="voyant ${actif ? '' : 'inactif'}"></span>${
@@ -181,7 +183,11 @@ export async function tableau(env: Env) {
   return page(
     'Tableau de bord',
     `<header class="page-entete">
-      <div><p class="surtitre">${echapper(date.charAt(0).toUpperCase() + date.slice(1))}</p><h1>Tableau de bord</h1>${etat}</div>
+      <div><p class="surtitre">${echapper(date.charAt(0).toUpperCase() + date.slice(1))}</p><h1>Tableau de bord</h1>${etat}${
+        claude
+          ? `<a class="pastille" href="/recherches"><span class="voyant ${depense >= budget(env) ? 'arret' : 'inactif'}"></span>Claude : ${euros(depense)} sur ${euros(budget(env))} aujourd’hui${depense >= budget(env) ? ', budget atteint' : ''}</a>`
+          : ''
+      }</div>
       <form class="recherche-globale" method="get" action="/prospects" role="search">
         ${icone('recherches')}<input type="search" name="q" placeholder="Nom, email, site, note…" aria-label="Rechercher un prospect"><kbd>/</kbd>
       </form>

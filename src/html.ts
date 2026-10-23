@@ -249,6 +249,8 @@ table.compact td, table.compact th { padding-top: 6px; padding-bottom: 6px; }
 /* Tableau de bord */
 .surtitre { margin: 0 0 2px !important; font-size: 13px; font-weight: 500; }
 .pastille { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--attenue-texte); }
+a.pastille { margin-left: 16px; text-decoration: none; }
+a.pastille:hover { color: var(--texte); }
 .recherche-globale { position: relative; display: flex; align-items: center; flex: 0 1 340px; }
 .recherche-globale > .icone { position: absolute; left: 12px; color: var(--attenue-texte); pointer-events: none; }
 .recherche-globale input { padding-left: 36px; padding-right: 40px; }
