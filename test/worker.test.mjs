@@ -213,7 +213,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
     const ligne = (nom) => liste.slice(liste.indexOf(`>${nom}<`)).split('</tr>')[0];
     // Claude juge les sites lus : son constat remplace celui des règles, un site déjà bon part en « plus tard ».
-    assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*Site faible 3\/10[\s\S]*contact@127\.0\.0\.1/);
+    assert.match(ligne('Domaine A'), /badge-nouveau[\s\S]*votre page d’accueil ne présente aucune de vos cuvées<[\s\S]*contact@127\.0\.0\.1[\s\S]*Site faible 3\/10/);
     assert.match(ligne('Domaine F'), /badge-plus_tard[\s\S]*site déjà bon selon Claude \(9\/10\)/);
     assert.equal(apifyFinal.appels.claude.length, 2); // seulement les sites lus, pas les fiches sans site
     const appel = apifyFinal.appels.claude[0];
@@ -273,7 +273,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     // Tableau de bord en page d'accueil ; les anciens liens filtrés mènent à la liste.
     const accueil = await (await fetch(admin)).text();
     assert.match(accueil, /<h1>Tableau de bord<\/h1>/);
-    assert.match(accueil, /<strong>0<\/strong><span>Email à chercher<\/span>/);
+    assert.match(accueil, /Email à chercher<\/span><strong>0<\/strong>/);
     assert.match(accueil, /Trouvés sur Google Maps/);
     const ancien = await fetch(`${admin}/?statut=a_verifier`, { redirect: 'manual' });
     assert.equal(ancien.headers.get('location'), `${admin}/prospects?statut=a_verifier`);

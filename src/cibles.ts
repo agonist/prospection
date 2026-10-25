@@ -2,7 +2,7 @@
 // base pour être modifiables dans l'admin. scripts/cibles.mjs donne les valeurs
 // de départ, insérées au premier chargement.
 import { CIBLES, CONSTATS, MODELE_CREATION, MODELE_EMAIL, VERSION_CIBLES } from '../scripts/cibles.mjs';
-import { echapper, icone, page } from './html';
+import { echapper, icone, nomLisible, page } from './html';
 
 export type Cible = {
   cle: string;
@@ -104,7 +104,7 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
 // Lien mailto: avec l'email du modèle rempli pour ce prospect.
 export function brouillon(cible: Cible | undefined, p: { email: string; nom: string; recherche: string; constat: string; ville: string; constat_cle?: string }) {
   const remplir = (texte: string) =>
-    texte.replace(/\{\{(nom|recherche|constat|ville)\}\}/g, (_, champ: 'nom' | 'recherche' | 'constat' | 'ville') => p[champ] ?? '');
+    texte.replace(/\{\{(nom|recherche|constat|ville)\}\}/g, (_, champ: 'nom' | 'recherche' | 'constat' | 'ville') => (champ === 'nom' ? nomLisible(p.nom) : p[champ]) ?? '');
   const [objet, ...corps] = remplir(p.constat_cle === 'creation' ? MODELE_CREATION : cible?.modele || MODELE_EMAIL).split('\n');
   return `mailto:${p.email}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps.join('\n').trim())}`;
 }
@@ -152,8 +152,8 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
       const couvertes = termes.filter(({ terme }) => faits.has(terme)).length;
       const n = chiffres[c.cle];
       return `<tr>
-        <td><a class="nom" href="/cibles?cle=${encodeURIComponent(c.cle)}">${echapper(c.nom)}</a><div class="discret tronque">${echapper(c.metiers.join(', '))}</div></td>
-        <td>${n?.n ?? 0}<div class="discret">${n?.prets ?? 0} prêts · ${n?.clients ?? 0} clients</div></td>
+        <td><a class="nom" href="/cibles?cle=${encodeURIComponent(c.cle)}">${echapper(c.nom)}</a><div class="discret serre description" title="${echapper(c.metiers.join(', '))}">${echapper(c.metiers.join(', '))}</div></td>
+        <td>${n?.n ?? 0}<div class="discret sans-coupure">${n?.prets ?? 0} prêts · ${n?.clients ?? 0} clients</div></td>
         <td>${barre(couvertes, termes.length, `${couvertes} / ${termes.length} recherches`)}<div class="discret">${c.metiers.length} métiers × ${c.communes.length} communes</div></td>
         <td class="actions-ligne"><a class="btn contour petit" href="/prospects?cible=${encodeURIComponent(c.cle)}">Prospects</a><a class="btn petit" href="/recherches?cible=${encodeURIComponent(c.cle)}">${icone('recherches', 14)}Rechercher</a></td>
       </tr>`;

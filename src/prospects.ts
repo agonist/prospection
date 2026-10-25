@@ -1,5 +1,6 @@
 // Ce qui est partagé par la liste, la fiche et le mode traitement.
 import { brouillon, type chargerCibles } from './cibles';
+import { RAISONS } from '../scripts/base.mjs';
 import { echapper, icone } from './html';
 
 export const STATUTS: Record<string, string> = {
@@ -85,7 +86,9 @@ export function estRecente(p: Pick<Prospect, 'creation' | 'origine' | 'site' | '
 export function etiquetteRecente(p: Pick<Prospect, 'creation' | 'origine' | 'site' | 'avis_google'>) {
   if (!estRecente(p)) return '';
   const titre = p.creation ? `Créée le ${new Date(p.creation).toLocaleDateString('fr-FR')}` : 'Pas de site et très peu d’avis Google : sans doute une entreprise récente';
-  return `<span class="etiquette-recente" title="${echapper(titre)}">${p.creation ? `Créée ${new Date(p.creation).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })}` : 'Récente'}</span>`;
+  const creee = new Date(p.creation);
+  const mois = creee.toLocaleDateString('fr-FR', creee.getFullYear() === new Date().getFullYear() ? { month: 'short' } : { month: 'short', year: 'numeric' });
+  return `<span class="etiquette-recente" title="${echapper(titre)}">${p.creation ? `Créée en ${mois}` : 'Récente'}</span>`;
 }
 
 // Statuts que « Réanalyser » renvoie en analyse.
@@ -162,15 +165,66 @@ export function date(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 }
 
-// Colonne email : bouton « Écrire » pour une adresse nominative, téléphone à défaut d'email.
-export function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCibles>>) {
-  if (p.statut === 'a_ecrire' && p.email) {
-    return `<a class="btn contour petit" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 14)}Écrire</a><div class="discret">${echapper(p.email)}</div>`;
+// « 25 oct. » cette année, « 25 oct. 2025 » avant.
+export function dateCourte(iso: string | null) {
+  if (!iso) return '';
+  const jour = new Date(iso);
+  const memeAnnee = jour.getFullYear() === new Date().getFullYear();
+  return jour.toLocaleDateString('fr-FR', memeAnnee ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+const RESEAUX: Record<string, string> = {
+  'facebook.com': 'Page Facebook',
+  'fb.com': 'Page Facebook',
+  'instagram.com': 'Instagram',
+  'linktr.ee': 'Linktree',
+  'linkedin.com': 'LinkedIn',
+  'pagesjaunes.fr': 'Pages Jaunes',
+};
+
+// Le site en quelques mots : le domaine, ou le réseau social quand le « site » n'en est pas un.
+export function siteCourt(url: string) {
+  try {
+    const hote = new URL(url).hostname.replace(/^www\./, '');
+    const reseau = Object.keys(RESEAUX).find((domaine) => hote === domaine || hote.endsWith(`.${domaine}`));
+    return reseau ? RESEAUX[reseau] : hote;
+  } catch {
+    return url.replace(/^https?:\/\/(www\.)?/, '');
   }
-  if (p.email) return echapper(p.email);
-  if (p.email_propose) return `<span class="discret">proposé : ${echapper(p.email_propose)}</span>`;
+}
+
+export function lienSite(url: string) {
+  return `<a href="${echapper(url)}" target="_blank" rel="noreferrer" class="lien-site" title="${echapper(url)}"><span>${echapper(siteCourt(url))}</span>${icone('externe', 12)}</a>`;
+}
+
+// Ce qui reste à lire dans la liste : le constat, et la raison seulement quand le statut ne la dit pas déjà.
+export function motif(p: Pick<Prospect, 'statut' | 'raison' | 'constat'>) {
+  const raison = p.raison.split(' : ')[0];
+  if (p.raison === RAISONS.enCours) return `<span class="raison-en-cours">${echapper(p.raison)}</span>${p.constat ? `<div class="discret serre">${echapper(p.constat)}</div>` : ''}`;
+  if (p.statut === 'a_verifier' && p.raison) {
+    return `<div class="raison serre" title="${echapper(p.raison)}">${echapper(raison)}</div>${p.constat ? `<div class="discret une-ligne" title="${echapper(p.constat)}">${echapper(p.constat)}</div>` : ''}`;
+  }
+  const texte = p.constat || (['a_ecrire', 'a_enrichir', 'sans_email'].includes(p.statut) ? '' : p.raison);
+  return texte ? `<div class="serre" title="${echapper(texte)}">${echapper(texte)}</div>` : '';
+}
+
+// Colonne email : l'adresse, avec un bouton « Écrire » quand elle est nominative.
+export function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCibles>>) {
+  const adresse = (email: string, classe = '') => `<span class="une-ligne ${classe}" title="${echapper(email)}">${echapper(email)}</span>`;
+  if (p.statut === 'a_ecrire' && p.email) {
+    return `<div class="contact">${adresse(p.email)}<a class="btn contour mini" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 13)}Écrire</a></div>`;
+  }
+  if (p.email) return adresse(p.email);
+  if (p.email_propose) return adresse(`proposé : ${p.email_propose}`, 'discret');
   return '<span class="discret">aucun email</span>';
 }
+
+// Les statuts regroupés pour les boutons de la fiche.
+export const GROUPES_STATUTS: [string, string[]][] = [
+  ['À traiter', ['nouveau', 'a_ecrire', 'a_enrichir', 'a_verifier', 'sans_email', 'a_analyser']],
+  ['Contactés', ['en_campagne', 'a_repondu', 'maquette', 'client']],
+  ['Écartés', ['plus_tard', 'hors_cible', 'pas_interesse', 'desinscrit']],
+];
 
 
 // Liens pour chercher soi-même l'email d'une fiche.
@@ -201,7 +255,7 @@ export const TRAITABLES = ['nouveau', 'a_ecrire', 'a_enrichir', 'a_verifier', 's
 export function priorite(score: number | undefined) {
   if (score == null) return '';
   const niveau = score >= 60 ? 'haute' : score >= 35 ? 'moyenne' : 'basse';
-  return `<span class="priorite priorite-${niveau}" title="Priorité sur 100 : constat, avis Google, contact">${score}</span>`;
+  return `<span class="priorite priorite-${niveau}" title="Priorité sur 100 : constat, avis Google, contact">${Math.min(100, score)}</span>`;
 }
 
 // Change le statut (et la note) d'une fiche, en gardant les dates à jour.

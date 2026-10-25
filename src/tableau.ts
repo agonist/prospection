@@ -118,11 +118,10 @@ export async function tableau(env: Env) {
   ]
     .map((t) => {
       const n = compte(t.statut);
-      return `<div class="carte a-faire ${n ? '' : 'vide'}">
-        <div class="a-faire-icone a-faire-${t.statut}">${icone(t.icone, 18)}</div>
-        <div class="a-faire-chiffre"><strong>${nombre(n)}</strong><span>${t.titre}</span></div>
+      return `<div class="file file-${t.statut} ${n ? '' : 'vide'}">
+        <div class="file-chiffre"><span>${icone(t.icone, 15)}${t.titre}</span><strong>${nombre(n)}</strong></div>
         <p>${t.texte}</p>
-        <div class="a-faire-actions">${
+        <div class="file-actions">${
           n ? `<a class="btn petit" href="${t.href}">${icone('jouer', 14)}${t.action}</a><a class="btn fantome petit" href="/prospects?statut=${t.statut}">Voir la liste</a>` : '<span class="discret">Rien pour l’instant</span>'
         }</div>
       </div>`;
@@ -183,17 +182,15 @@ export async function tableau(env: Env) {
   return page(
     'Tableau de bord',
     `<header class="page-entete">
-      <div><p class="surtitre">${echapper(date.charAt(0).toUpperCase() + date.slice(1))}</p><h1>Tableau de bord</h1>${etat}${
-        claude
-          ? `<a class="pastille" href="/recherches"><span class="voyant inactif"></span>Claude : ${euros(depense)} aujourd’hui</a>`
-          : ''
-      }</div>
+      <div><h1>Tableau de bord</h1><div class="sous-titre"><span>${echapper(date.charAt(0).toUpperCase() + date.slice(1))}</span>${etat}${
+        claude ? `<a class="pastille" href="/recherches">Claude : ${euros(depense)} aujourd’hui</a>` : ''
+      }</div></div>
       <form class="recherche-globale" method="get" action="/prospects" role="search">
         ${icone('recherches')}<input type="search" name="q" placeholder="Nom, email, site, note…" aria-label="Rechercher un prospect"><kbd>/</kbd>
       </form>
     </header>
     ${e.total ? '' : bienvenue}
-    <section class="a-faire-grille">${aFaire}</section>
+    <section class="carte files" aria-label="À faire">${aFaire}</section>
     <div class="grille tableau-de-bord">
       <section class="carte">
         <div class="carte-entete"><div><h2 class="carte-titre">Entonnoir</h2><p class="carte-description">Du premier passage sur Google Maps jusqu’au devis signé.</p></div></div>

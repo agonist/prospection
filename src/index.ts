@@ -25,8 +25,13 @@ import {
   CLES_FILTRES,
   ORIGINES,
   etiquetteRecente,
+  dateCourte,
+  lienSite,
+  motif,
+  siteCourt,
+  GROUPES_STATUTS,
 } from './prospects';
-import { echapper, icone, page } from './html';
+import { echapper, icone, nomLisible, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
 import { tableau } from './tableau';
@@ -96,9 +101,7 @@ async function liste(url: URL, env: Env) {
       : '';
   const reanalysable = REANALYSABLES.includes(filtres.statut) && nombre > 0;
 
-  const stat = (statut: string, libelle: string) =>
-    `<a class="carte stat" href="${lienFiltres({ ...filtres, statut })}"><span>${libelle}</span><strong>${compteStatuts[statut] ?? 0}</strong></a>`;
-
+  const rempli = (valeur: string) => (valeur ? 'rempli' : '');
   const optionsCategories = (categories.results as { categorie: string; n: number }[])
     .filter(({ categorie }) => categorie)
     .map(({ categorie, n }) => `<option value="${echapper(categorie)}" ${filtres.categorie === categorie ? 'selected' : ''}>${echapper(categorie)} (${n})</option>`)
@@ -107,22 +110,19 @@ async function liste(url: URL, env: Env) {
     .filter(({ ville }) => ville)
     .map(({ ville, n }) => `<option value="${echapper(ville)}" ${filtres.ville === ville ? 'selected' : ''}>${echapper(ville)} (${n})</option>`)
     .join('');
+  const filtre = filtres.cible || filtres.categorie || filtres.ville || filtres.origine || filtres.q;
 
   const rangees = prospects
     .map(
       (p) => `<tr>
         <td class="case-ligne"><input type="checkbox" name="ids" value="${echapper(p.id)}" form="lot" aria-label="Choisir ${echapper(p.nom)}"></td>
-        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a>${etiquetteRecente(p)}<div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
-        <td>${badge(p.statut)}</td>
-        <td>${priorite(p.score)}</td>
-        <td class="tronque">${
-          p.raison && ['a_verifier', 'a_ecrire', 'a_enrichir', 'sans_email'].includes(p.statut)
-            ? `${echapper(p.raison.split(' : ')[0])}${p.constat ? `<div class="discret">${echapper(p.constat)}</div>` : ''}`
-            : echapper(p.constat || p.raison)
-        }${p.verdict ? `<div>${verdict(p)}</div>` : ''}</td>
-        <td>${contact(p, cibles)}</td>
-        <td>${p.site ? `<a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="lien-site">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}${icone('externe', 12)}</a>` : '<span class="discret">aucun</span>'}</td>
-        <td class="discret">${date(p.vu_le)}</td>
+        <td class="col-etab"><div class="ligne-nom"><a href="/p/${encodeURIComponent(p.id)}" class="nom" title="${echapper(p.nom)}">${echapper(nomLisible(p.nom))}</a>${etiquetteRecente(p)}</div><span class="discret une-ligne">${[p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ') || echapper(cibles[p.cible]?.nom ?? p.cible)}</span></td>
+        <td class="col-statut">${badge(p.statut)}</td>
+        <td class="col-priorite">${priorite(p.score)}</td>
+        <td class="col-constat">${motif(p)}</td>
+        <td class="col-contact">${contact(p, cibles)}</td>
+        <td class="col-site">${p.site ? lienSite(p.site) : '<span class="discret">pas de site</span>'}${p.verdict ? `<div>${verdict(p)}</div>` : ''}</td>
+        <td class="col-vu discret" title="${echapper(date(p.vu_le))}">${dateCourte(p.vu_le)}</td>
       </tr>`,
     )
     .join('');
@@ -130,13 +130,14 @@ async function liste(url: URL, env: Env) {
   const pages = Math.ceil(nombre / PAR_PAGE);
   const pagination =
     pages > 1
-      ? `<nav class="pagination"><span>Page ${numero} sur ${pages} · ${nombre} prospects</span><span class="actions-entete">${numero > 1 ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero - 1) })}">Précédents</a>` : ''}${numero < pages ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero + 1) })}">Suivants</a>` : ''}</span></nav>`
+      ? `<nav class="pagination"><span>Page ${numero} sur ${pages}</span><span class="actions-entete">${numero > 1 ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero - 1) })}">Précédents</a>` : ''}${numero < pages ? `<a class="btn contour petit" href="${lienFiltres(filtres, { page: String(numero + 1) })}">Suivants</a>` : ''}</span></nav>`
       : '';
 
   const exportable = filtres.statut === 'nouveau' && nombre > 0;
   const champsCaches = Object.entries(filtres)
     .map(([cle, valeur]) => `<input type="hidden" name="${cle}" value="${echapper(valeur)}">`)
     .join('');
+  const compte = `${nombre} prospect${nombre > 1 ? 's' : ''}${filtres.statut ? ` <em>· ${echapper(STATUTS[filtres.statut] ?? filtres.statut)}</em>` : ''}`;
 
   return page(
     'Prospects',
@@ -144,7 +145,7 @@ async function liste(url: URL, env: Env) {
       <div><h1>Prospects</h1><p>Tous les établissements trouvés, avec leur constat et leur statut.</p></div>
       <div class="actions-entete">${
         TRAITABLES.includes(filtres.statut) && nombre
-          ? `<a href="/traiter?${requeteFiltres(filtres)}" class="btn">${icone('jouer')}Traiter ces ${nombre} fiches</a><a href="/recherches" class="btn contour">${icone('plus')}Nouvelle recherche</a>`
+          ? `<a href="/recherches" class="btn contour">${icone('plus')}Nouvelle recherche</a><a href="/traiter?${requeteFiltres(filtres)}" class="btn">${icone('jouer')}Traiter ces ${nombre} fiches</a>`
           : `<a href="/recherches" class="btn">${icone('plus')}Nouvelle recherche</a>`
       }</div>
     </header>
@@ -154,28 +155,26 @@ async function liste(url: URL, env: Env) {
         ? `<div class="alerte"><span class="voyant"></span><p>${enCours.recherches ? `${enCours.recherches} recherche${enCours.recherches > 1 ? 's' : ''} en cours. ` : ''}${enCours.analyses ? `${enCours.analyses} sites en attente d’analyse.` : ''}</p><a class="btn contour petit" href="/recherches">${icone('activite', 14)}Voir l’avancement</a></div>`
         : ''
     }
-    <section class="stats">
-      ${stat('nouveau', 'Prêts pour Smartlead')}${stat('a_ecrire', 'À écrire à la main')}${stat('a_enrichir', 'Email à chercher')}${stat('a_verifier', 'À vérifier')}${stat('en_campagne', 'En campagne')}
-    </section>
-    <form class="outils" method="get" action="/prospects">
-      <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
-      <select name="categorie" onchange="this.form.submit()"><option value="">Toutes les catégories</option>${optionsCategories}</select>
-      <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
-      <select name="origine" onchange="this.form.submit()"><option value="">Toutes les sources</option>${Object.entries(ORIGINES)
-        .map(([cle, libelle]) => `<option value="${cle}" ${filtres.origine === cle ? 'selected' : ''}>${libelle}</option>`)
-        .join('')}</select>
-      <select name="tri" onchange="this.form.submit()"><option value="priorite" ${parPriorite ? 'selected' : ''}>Par priorité</option><option value="recent" ${parPriorite ? '' : 'selected'}>Plus récents</option></select>
-      <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
-      <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…">
-      <button type="submit" class="btn contour">${icone('recherches')}Chercher</button>
-    </form>
-    <nav class="onglets">${onglets}</nav>
-    ${motifs}
+    <nav class="onglets" aria-label="Statuts">${onglets}</nav>
+    <div class="barre-filtres">
+      <form class="filtres" id="filtres" method="get" action="/prospects" role="search">
+        <div class="champ-recherche">${icone('recherches', 15)}<input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…" aria-label="Chercher"><kbd>/</kbd></div>
+        <select name="cible" class="${rempli(filtres.cible)}" onchange="this.form.submit()" aria-label="Cible"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
+        <select name="categorie" class="${rempli(filtres.categorie)}" onchange="this.form.submit()" aria-label="Catégorie"><option value="">Toutes les catégories</option>${optionsCategories}</select>
+        <select name="ville" class="${rempli(filtres.ville)}" onchange="this.form.submit()" aria-label="Commune"><option value="">Toutes les communes</option>${optionsVilles}</select>
+        <select name="origine" class="${rempli(filtres.origine)}" onchange="this.form.submit()" aria-label="Source"><option value="">Toutes les sources</option>${Object.entries(ORIGINES)
+          .map(([cle, libelle]) => `<option value="${cle}" ${filtres.origine === cle ? 'selected' : ''}>${libelle}</option>`)
+          .join('')}</select>
+        <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
+        ${filtre ? `<a class="effacer" href="${lienFiltres({ statut: filtres.statut })}">Effacer les filtres</a>` : ''}
+      </form>
+      ${motifs}
+    </div>
     ${
       reanalysable
         ? `<form class="alerte" method="post" action="/reanalyser">${champsCaches}
             <p>${filtres.statut === 'a_ecrire' ? 'Le bouton « Écrire » ouvre l’email prérempli et passe la fiche en « En campagne ». ' : ''}${filtres.statut === 'a_enrichir' ? 'Pas d’email sur le site : Claude le cherche sur le web tout seul, quelques fiches par minute. ' : ''}Si les règles d’analyse ont changé, tu peux repasser ces ${nombre} fiches à l’analyse.</p>
-            <button type="submit" class="btn contour petit">${icone('activite', 14)}Réanalyser</button>
+            <button type="submit" class="btn fantome petit">${icone('activite', 14)}Réanalyser</button>
           </form>`
         : ''
     }
@@ -184,38 +183,39 @@ async function liste(url: URL, env: Env) {
         ? `<form class="alerte succes" method="post" action="/export">${champsCaches}
             <p><strong>${nombre} prospects prêts.</strong> L’export ne prend que les adresses génériques, sans les désinscrits.</p>
             <label class="case"><input type="checkbox" name="marquer" value="1" checked><span>Les passer en « En campagne »</span></label>
-            <button type="submit" class="btn">${icone('telecharger')}Exporter pour Smartlead</button>
+            <button type="submit" class="btn petit">${icone('telecharger', 14)}Exporter pour Smartlead</button>
           </form>`
         : ''
     }
     <div class="carte">
-    ${
-      prospects.length
-        ? `<form id="lot" method="post" action="/lot" class="barre-lot">
-            <input type="hidden" name="retour" value="${echapper(lienFiltres(filtres, numero > 1 ? { page: String(numero) } : {}))}">
-            <span class="discret" id="compte-lot">Coche des fiches pour changer leur statut d’un coup.</span>
-            <select name="statut" required><option value="">Passer en…</option>${Object.entries(STATUTS)
-              .filter(([statut]) => statut !== 'a_analyser')
-              .map(([statut, libelle]) => `<option value="${statut}">${libelle}</option>`)
-              .join('')}</select>
-            <button type="submit" class="btn contour petit">Appliquer</button>
-          </form>
-          <script>
-            function majLot() {
-              const n = document.querySelectorAll('input[name=ids]:checked').length;
-              document.getElementById('compte-lot').textContent = n ? n + (n > 1 ? ' fiches choisies' : ' fiche choisie') : 'Coche des fiches pour changer leur statut d’un coup.';
-            }
-            document.addEventListener('change', (e) => e.target.name === 'ids' && majLot());
-          </script>`
-        : ''
-    }
-    ${
-      prospects.length
-        ? `<div class="tableau"><table><thead><tr><th class="case-ligne"><input type="checkbox" aria-label="Tout choisir" onclick="document.querySelectorAll('input[name=ids]').forEach((c) => (c.checked = this.checked)); majLot()"></th><th>Établissement</th><th>Statut</th><th>Priorité</th><th>Constat ou raison</th><th>Contact</th><th>Site</th><th>Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
-        : '<div class="vide"><strong>Aucun prospect ici</strong>Lance une <a href="/recherches">nouvelle recherche</a> pour remplir la base.</div>'
-    }
-    ${pagination}
-    </div>`,
+      <form id="lot" method="post" action="/lot" class="entete-liste">
+        <input type="hidden" name="retour" value="${echapper(lienFiltres(filtres, numero > 1 ? { page: String(numero) } : {}))}">
+        <span class="compte" id="compte-lot" data-total="${echapper(compte)}">${compte}</span>
+        <div class="actions-lot" hidden>
+          <select name="statut" required aria-label="Nouveau statut"><option value="">Passer en…</option>${Object.entries(STATUTS)
+            .filter(([statut]) => statut !== 'a_analyser')
+            .map(([statut, libelle]) => `<option value="${statut}">${libelle}</option>`)
+            .join('')}</select>
+          <button type="submit" class="btn petit">Appliquer</button>
+        </div>
+        <label class="tri"><span>Trier</span><select name="tri" form="filtres" onchange="this.form.submit()"><option value="priorite" ${parPriorite ? 'selected' : ''}>Par priorité</option><option value="recent" ${parPriorite ? '' : 'selected'}>Plus récents</option></select></label>
+      </form>
+      ${
+        prospects.length
+          ? `<div class="tableau"><table class="liste"><thead><tr><th class="case-ligne col-case"><input type="checkbox" aria-label="Tout choisir" onclick="document.querySelectorAll('input[name=ids]').forEach((c) => (c.checked = this.checked)); majLot()"></th><th class="col-etab">Établissement</th><th class="col-statut">Statut</th><th class="col-priorite" title="Priorité sur 100 : constat, avis Google, contact">Prio.</th><th class="col-constat">Constat</th><th class="col-contact">Email</th><th class="col-site">Site</th><th class="col-vu">Vu le</th></tr></thead><tbody>${rangees}</tbody></table></div>`
+          : `<div class="vide"><strong>Aucun prospect ici</strong>${filtre ? `Aucune fiche ne correspond à ces filtres. <a href="${lienFiltres({ statut: filtres.statut })}">Les effacer</a>.` : 'Lance une <a href="/recherches">nouvelle recherche</a> pour remplir la base.'}</div>`
+      }
+      ${pagination}
+    </div>
+    <script>
+      function majLot() {
+        const n = document.querySelectorAll('input[name=ids]:checked').length;
+        const compte = document.getElementById('compte-lot');
+        compte.innerHTML = n ? n + (n > 1 ? ' fiches choisies' : ' fiche choisie') : compte.dataset.total;
+        document.querySelector('.actions-lot').hidden = !n;
+      }
+      document.addEventListener('change', (e) => e.target.name === 'ids' && majLot());
+    </script>`,
   );
 }
 
@@ -226,19 +226,23 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
     .filter(([, valeur]) => valeur)
     .map(([cle, valeur]) => `<li>${echapper(cle)}${typeof valeur === 'number' ? ` ${valeur}` : ''}</li>`)
     .join('');
-  const boutons = Object.entries(STATUTS)
-    .map(([statut, libelle]) => `<button type="submit" name="statut" value="${statut}" class="${p.statut === statut ? 'actif' : ''}">${libelle}</button>`)
-    .join('');
+  const boutons = GROUPES_STATUTS.map(
+    ([groupe, statuts]) =>
+      `<div class="groupe-statuts"><span>${groupe}</span><div class="statuts">${statuts
+        .map((statut) => `<button type="submit" name="statut" value="${statut}" class="${p.statut === statut ? 'actif' : ''}">${STATUTS[statut]}</button>`)
+        .join('')}</div></div>`,
+  ).join('');
   const ligne = (libelle: string, valeur: string) => (valeur ? `<dt>${libelle}</dt><dd>${valeur}</dd>` : '');
   const lienExterne = (href: string, texte: string) =>
-    `<a href="${echapper(href)}" target="_blank" rel="noreferrer" class="avec-icone">${echapper(texte)}${icone('externe', 12)}</a>`;
+    `<a href="${echapper(href)}" target="_blank" rel="noreferrer" class="lien-site" title="${echapper(href)}"><span>${echapper(texte)}</span>${icone('externe', 12)}</a>`;
 
   return page(
     p.nom,
     `<a class="retour" href="/prospects?cible=${encodeURIComponent(p.cible)}">${icone('retour')}Prospects</a>
     <header class="page-entete">
-      <div><h1>${echapper(p.nom)}</h1><p class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)} · ${echapper(cibles[p.cible]?.nom ?? p.cible)}</p></div>
-      ${badge(p.statut)}
+      <div><div class="titre-ligne"><h1>${echapper(nomLisible(p.nom))}</h1>${badge(p.statut)}${etiquetteRecente(p)}</div>
+        <div class="sous-titre"><span class="avec-icone">${icone('lieu', 14)}${echapper(p.adresse || p.ville)}</span><span>${echapper([p.categorie, cibles[p.cible]?.nom ?? p.cible].filter(Boolean).join(' · '))}</span>${p.note_google ? `<span>${String(p.note_google).replace('.', ',')} ★ · ${p.avis_google ?? 0} avis</span>` : ''}</div></div>
+      <div class="actions-entete">${p.site ? `<a class="btn contour petit" href="${echapper(p.site)}" target="_blank" rel="noreferrer">${icone('site', 14)}${echapper(siteCourt(p.site))}</a>` : ''}${p.fiche_google ? `<a class="btn contour petit" href="${echapper(p.fiche_google)}" target="_blank" rel="noreferrer">${icone('lieu', 14)}Fiche Google</a>` : ''}</div>
     </header>
     ${enregistre ? `<div class="alerte succes"><p>Enregistré.</p></div>` : ''}
     <div class="grille deux-colonnes">
@@ -260,8 +264,8 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
             ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
             ${ligne('Téléphone', echapper(p.telephone))}
-            ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\//, '')) : '<span class="discret">aucun</span>')}
-            ${ligne('Fiche Google', p.fiche_google ? `${lienExterne(p.fiche_google, 'Ouvrir')}${p.note_google ? ` <span class="discret">· ${p.note_google} ★ (${p.avis_google ?? 0} avis)</span>` : ''}` : '')}
+            ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')) : '<span class="discret">pas de site</span>')}
+            
             ${ligne('Catégorie', echapper(p.categorie))}
             ${ligne('Source', p.origine === 'sirene' ? `Registre des entreprises${p.creation ? `, créée le ${date(p.creation)}` : ''}` : '')}
             ${ligne('Recherche', echapper(p.recherche))}
@@ -286,7 +290,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
       <form method="post" action="/p/${encodeURIComponent(p.id)}" class="carte">
         <div class="carte-entete"><div><h2 class="carte-titre">Suivi</h2><p class="carte-description">Un clic change le statut.</p></div></div>
         <div class="carte-contenu formulaire">
-          <div class="statuts">${boutons}</div>
+          <div class="groupes-statuts">${boutons}</div>
           <div class="champ"><label for="note">Note</label>
             <textarea id="note" name="note" rows="7" placeholder="Appel, réponse, idée de maquette…">${echapper(p.note)}</textarea></div>
           <div><button type="submit" name="statut" value="${echapper(p.statut)}" class="btn">Enregistrer la note</button></div>
@@ -348,7 +352,7 @@ async function exporter(requete: Request, env: Env) {
     results.map((p) => ({
       email: p.email,
       first_name: '',
-      company_name: p.nom,
+      company_name: nomLisible(p.nom),
       salutation: 'Bonjour,',
       recherche: p.recherche,
       constat: p.constat,

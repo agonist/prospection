@@ -10,6 +10,7 @@ import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot } from './enrichir';
+import { nomLisible } from './html';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -67,16 +68,6 @@ const UPSERT = `INSERT INTO prospects
     raison = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) THEN excluded.raison ELSE prospects.raison END,
     statut_le = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) AND prospects.statut <> excluded.statut THEN excluded.statut_le ELSE prospects.statut_le END,
     statut = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) THEN excluded.statut ELSE prospects.statut END`;
-
-const FORMES = new Set(['SARL', 'SAS', 'SASU', 'EURL', 'EARL', 'SCEA', 'GAEC', 'SCI', 'SA', 'EI', 'SNC']);
-
-// Les noms du registre sont souvent en capitales : « DOMAINE MULLER SARL » → « Domaine Muller SARL ».
-function nomLisible(nom: string) {
-  if (nom !== nom.toUpperCase()) return nom;
-  return nom
-    .toLowerCase()
-    .replace(/[\p{L}\d]+/gu, (mot) => (FORMES.has(mot.toUpperCase()) ? mot.toUpperCase() : mot.charAt(0).toUpperCase() + mot.slice(1)));
-}
 
 // Une entreprise du registre Sirene, mise au format d'une fiche Google Maps.
 export function ficheSirene(item: Record<string, unknown>, cible: Cible | undefined): Record<string, unknown> | null {

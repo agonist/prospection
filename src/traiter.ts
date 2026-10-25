@@ -3,8 +3,9 @@
 import { brouillon, chargerCibles } from './cibles';
 import { claudeActif } from './claude';
 import { type AEnrichir, appliquerEmail, enregistrer, enrichir, LIBELLES_RESULTAT } from './enrichir';
-import { echapper, icone, page } from './html';
+import { echapper, icone, nomLisible, page } from './html';
 import {
+  NATURES,
   SCORE,
   STATUTS,
   TRAITABLES,
@@ -143,19 +144,20 @@ export async function pageTraiter(url: URL, env: Env) {
     .join('');
 
   const apercu = p.site
-    ? `<div class="apercu"><div class="apercu-barre"><span class="tronque">${echapper(p.site.replace(/^https?:\/\//, ''))}</span><a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="btn contour petit">${icone('externe', 14)}Ouvrir</a></div>
+    ? `<div class="apercu"><div class="apercu-barre"><span class="tronque" title="${echapper(p.site)}">${echapper(p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</span><a href="${echapper(p.site)}" target="_blank" rel="noreferrer" class="btn contour petit">${icone('externe', 14)}Ouvrir</a></div>
         <iframe src="${echapper(p.site)}" sandbox="allow-scripts" loading="lazy" referrerpolicy="no-referrer" title="Aperçu du site"></iframe>
         <p class="discret">Page blanche ? Certains sites refusent l’aperçu : ouvre-le dans un onglet.</p></div>`
-    : `<div class="apercu vide"><strong>Pas de site</strong>${p.fiche_google ? `<a href="${echapper(p.fiche_google)}" target="_blank" rel="noreferrer">Voir la fiche Google</a>` : ''}</div>`;
+    : '';
 
   return page(
-    `Traiter · ${p.nom}`,
+    `Traiter · ${nomLisible(p.nom)}`,
     `${retour}
     <header class="page-entete">
-      <div><h1>${echapper(p.nom)}</h1>${etiquetteRecente(p)}<p>${[cible?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}${p.note_google ? ` · ${p.note_google} ★ (${p.avis_google ?? 0} avis)` : ''}</p></div>
-      <div class="actions-entete">${badge(p.statut)}${priorite(p.score)}<span class="discret">${restantes} restante${restantes > 1 ? 's' : ''}</span></div>
+      <div><div class="titre-ligne"><h1>${echapper(nomLisible(p.nom))}</h1>${badge(p.statut)}${etiquetteRecente(p)}</div>
+        <div class="sous-titre"><span>${[p.categorie, p.ville, cible?.nom ?? p.cible].filter(Boolean).map(echapper).join(' · ')}</span>${p.note_google ? `<span>${String(p.note_google).replace('.', ',')} ★ · ${p.avis_google ?? 0} avis</span>` : ''}</div></div>
+      <div class="actions-entete">${priorite(p.score)}<span class="discret">${restantes} restante${restantes > 1 ? 's' : ''} dans la file</span></div>
     </header>
-    <div class="traiter">
+    <div class="traiter${p.site ? '' : ' sans-site'}">
       <form method="post" action="/traiter" class="carte" id="traitement">${champs}
         <div class="carte-contenu formulaire">
           <p class="consigne">${icone('activite', 14)}${p.statut === 'a_enrichir' && !claude ? SANS_CLAUDE : (CONSIGNES[p.statut] ?? '')}</p>
@@ -164,8 +166,9 @@ export async function pageTraiter(url: URL, env: Env) {
           ${p.constat ? `<div><span class="discret">J’ai remarqué que…</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
           ${avisDetaille(p)}
           <dl>
-            ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> <span class="discret">${echapper(p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
+            ${p.site ? '' : ligne('Site', '<span class="discret">pas de site</span>')}
             ${ligne('Adresse', echapper(p.adresse))}
             ${ligne('Recherche', echapper(p.recherche))}
             ${ligne('Fiche', `<a href="/p/${encodeURIComponent(p.id)}">Fiche complète</a>${p.fiche_google ? ` · <a href="${echapper(p.fiche_google)}" target="_blank" rel="noreferrer">Google</a>` : ''}`)}

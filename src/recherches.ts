@@ -56,7 +56,14 @@ function etatTache(dernier: string | undefined, travail: boolean) {
     return `<p class="etat-tache"><span class="voyant ${travail ? 'arret' : 'inactif'}"></span>La tâche automatique n’est encore jamais passée.</p><p class="discret">En local, elle tourne tant que <code>pnpm local</code> est ouvert.</p>`;
   }
   const secondes = Math.round((Date.now() - new Date(dernier).getTime()) / 1000);
-  const depuis = secondes < 90 ? `il y a ${secondes} s` : `il y a ${Math.round(secondes / 60)} min`;
+  const depuis =
+    secondes < 90
+      ? `il y a ${secondes} s`
+      : secondes < 90 * 60
+        ? `il y a ${Math.round(secondes / 60)} min`
+        : secondes < 36 * 3600
+          ? `il y a ${Math.round(secondes / 3600)} h`
+          : `il y a ${Math.round(secondes / 86400)} jours`;
   if (secondes > 180) {
     return `<p class="etat-tache erreur"><span class="voyant arret"></span>Dernier passage de la tâche ${depuis} : elle ne tourne plus.</p><p class="discret">En local, relance <code>pnpm local</code>.</p>`;
   }
@@ -101,7 +108,7 @@ export async function pageRecherches(url: URL, env: Env) {
       return `<tr>
         <td class="discret">${new Date(r.cree_le).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</td>
         <td class="nom">${echapper(cibles[r.cible]?.nom ?? r.cible)}</td>
-        <td class="tronque">${echapper(termes.slice(0, 3).join(', '))}${termes.length > 3 ? ` <span class="discret">et ${termes.length - 3} autres</span>` : ''}</td>
+        <td><div class="serre description">${echapper(termes.slice(0, 3).join(', '))}${termes.length > 3 ? ` <span class="discret">et ${termes.length - 3} autres</span>` : ''}</div></td>
         <td>${etat(r)}${r.erreur ? `<div class="erreur discret">${echapper(r.erreur)}</div>` : ''}</td>
         <td>${progression(r)}</td>
       </tr>`;

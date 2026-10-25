@@ -15,6 +15,8 @@ export const RAISONS = {
   introuvable: 'aucun email trouvé, ni sur le site ni sur le web',
   propose: 'Claude propose une adresse sans avoir pu la retrouver dans la page citée : vérifie la source',
   ecrire: 'adresse nominative : écrire à la main, pas dans Smartlead (règle CNIL)',
+  // Marque une fiche dont l'email est en train d'être cherché.
+  enCours: 'Claude cherche l’email sur le web…',
 };
 
 // Où va une fiche selon la nature de son email.

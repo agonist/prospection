@@ -9,7 +9,7 @@ import { SCORE } from './prospects';
 
 const ENRICHIS_PAR_PASSAGE = 3;
 // Marque les fiches en cours, pour qu'un passage suivant ne lance pas la même recherche.
-const EN_COURS = 'Claude cherche l’email sur le web…';
+const EN_COURS = RAISONS.enCours;
 const BLOCAGE_MS = 10 * 60_000;
 
 export type AEnrichir = { id: string; nom: string; categorie: string; ville: string; adresse: string; site: string; telephone: string; email: string };
