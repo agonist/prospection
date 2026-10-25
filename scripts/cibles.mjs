@@ -31,10 +31,24 @@ Je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous p
 Bonne journée,
 Bas`;
 
+// Entreprises tout juste créées (registre Sirene) : elles n'ont souvent ni site ni
+// fiche Google, d'où un autre angle que « je suis tombé sur votre fiche ».
+export const CONSTAT_CREATION = "vous n'avez pas encore de site internet";
+
+export const MODELE_CREATION = `{{nom}}, félicitations pour le lancement
+Bonjour,
+
+J'ai vu passer la création de {{nom}} à {{ville}}, félicitations ! En cherchant, j'ai remarqué que {{constat}}.
+
+Je fais des sites pour les entreprises d'Alsace (C'est bien beau). Les premiers mois, un site simple aide beaucoup à se faire connaître : si ça vous parle, je peux vous montrer en deux minutes ce que ça donnerait pour vous, sans engagement.
+
+Bonne journée,
+Bas`;
+
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 2;
+export const VERSION_CIBLES = 3;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 const VILLES = [
@@ -48,6 +62,8 @@ export const CIBLES = {
   vin: {
     nom: 'Domaines viticoles',
     metiers: ['domaine viticole', 'vigneron'],
+    // Codes d'activité (NAF) des nouvelles entreprises à chercher dans le registre Sirene.
+    naf: ['01.21Z Culture de la vigne', '11.02B Vinification'],
     // Villages de la route des vins d'Alsace, du nord au sud.
     communes: [
       'Marlenheim', 'Wolxheim', 'Molsheim', 'Rosheim', 'Obernai', 'Barr', 'Mittelbergheim', 'Andlau', 'Itterswiller',
@@ -73,6 +89,7 @@ export const CIBLES = {
   },
   'bien-etre': {
     nom: 'Bien-être',
+    naf: ['96.04Z Entretien corporel', '96.02B Soins de beauté', '86.90F Santé humaine non classée ailleurs'],
     metiers: ['naturopathe', 'sophrologue', 'ostéopathe', 'kinésiologue', 'réflexologue', 'hypnothérapeute', 'masseur bien-être'],
     communes: VILLES,
     exclure: [/\bspa\b/i, /institut de beaut[ée]/i, /\bh[ôo]pital\b/i, /\bclinique\b/i],
@@ -89,6 +106,16 @@ export const CIBLES = {
   },
   artisan: {
     nom: 'Artisans du bâtiment',
+    naf: [
+      '43.32A Menuiserie bois et PVC',
+      '43.22A Plomberie',
+      '43.21A Électricité',
+      '43.91B Couverture',
+      '43.91A Charpente',
+      '43.33Z Revêtement des sols et des murs',
+      '43.34Z Peinture et vitrerie',
+      '43.99C Maçonnerie générale',
+    ],
     metiers: ['menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon'],
     communes: VILLES,
     exclure: [/leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i],

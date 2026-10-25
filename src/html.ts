@@ -154,6 +154,8 @@ td a:hover { text-decoration: underline; }
 .badge-a_ecrire { background: color-mix(in srgb, #0ea5e9 14%, transparent); color: #0284c7; }
 .badge-a_enrichir { background: color-mix(in srgb, #8b5cf6 14%, transparent); color: #7c3aed; }
 .badge-sans_email { color: var(--attenue-texte); }
+.etiquette-recente { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; vertical-align: middle; color: #0d9488; background: color-mix(in srgb, #14b8a6 14%, transparent); white-space: nowrap; }
+h1 + .etiquette-recente { margin: 6px 0 0; }
 .consigne { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: var(--rayon); background: var(--attenue); font-size: 13px; }
 .consigne .icone { margin-top: 3px; color: var(--attenue-texte); }
 .trouver-email { display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--champ); border-radius: var(--rayon); }

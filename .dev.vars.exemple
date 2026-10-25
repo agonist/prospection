@@ -1,6 +1,8 @@
 ACCESS_DESACTIVE=1
 # Clé API Apify : Settings → API & Integrations sur console.apify.com
 APIFY_TOKEN=
+# Clé INSEE facultative (gratuite sur portail-api.insee.fr) pour les nouvelles entreprises du registre Sirene.
+INSEE_API_KEY=
 # Clé API Anthropic, pour que Claude juge chaque site : console.anthropic.com → API Keys.
 # Sans clé, l'analyse se fait avec les règles seules.
 ANTHROPIC_API_KEY=

@@ -90,6 +90,16 @@ Dans l'admin, **Nouvelle recherche** : la cible préremplit ses métiers et les 
 
 L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis et les photos sont désactivés. La case « Extraire les emails avec Apify » (cochée par défaut) active l'option payante qui récupère les emails des sites pendant l'extraction ; l'analyse repasse de toute façon sur chaque site pour le constat et pour les emails qu'Apify aurait manqués.
 
+## Nouvelles entreprises (registre Sirene)
+
+En bas de **Recherches**, « Nouvelles entreprises » cherche les entreprises créées ces N derniers jours dans les départements choisis, pour les codes d'activité (NAF) de la cible. L'extraction passe par l'acteur Apify [New French Companies Finder (SIRENE)](https://apify.com/fit_melon/new-french-companies-finder-sirene) : gratuit hors consommation de la plateforme, avec une clé INSEE facultative (`INSEE_API_KEY`, gratuite sur portail-api.insee.fr) pour des résultats plus complets. Les entrepreneurs qui ont refusé la diffusion de leurs données sont exclus à la source.
+
+Ces fiches n'ont ni email ni site : elles partent en « Email à chercher » et Claude cherche l'adresse. Leur constat est « vous n'avez pas encore de site internet », et l'email écrit à la main part avec l'angle « félicitations pour le lancement ». Pour Smartlead, filtrer la liste sur la source « Nouvelles entreprises » et faire une campagne à part : la colonne `source` vaut « le registre des entreprises ».
+
+Le filtre « Récentes » montre les entreprises créées dans l'année, et celles qui sont sur Google sans site avec 5 avis ou moins (sans doute récentes). Une étiquette les signale dans la liste.
+
+Rythme conseillé : une recherche Google Maps par cible et par mois, et une recherche des nouvelles entreprises chaque lundi sur les 7 derniers jours.
+
 ## Les cibles
 
 La page **Cibles** liste les métiers prospectés, avec le nombre de prospects et les communes déjà couvertes. On y crée une nouvelle cible (restaurants, avocats…) et on modifie celles qui existent : métiers cherchés sur Google Maps, communes, mots qui excluent une fiche (coopérative, franchise…) et ordre des constats. `scripts/cibles.mjs` donne les valeurs de départ. Quand on y ajoute des métiers ou des communes et qu'on augmente `VERSION_CIBLES`, l'admin les ajoute aux cibles existantes au lancement suivant, sans rien retirer.

@@ -22,6 +22,9 @@ import {
   lienFiltres,
   lireFiltres,
   requeteFiltres,
+  CLES_FILTRES,
+  ORIGINES,
+  etiquetteRecente,
 } from './prospects';
 import { echapper, icone, page } from './html';
 import { lancerRecherche, pageRecherches } from './recherches';
@@ -109,7 +112,7 @@ async function liste(url: URL, env: Env) {
     .map(
       (p) => `<tr>
         <td class="case-ligne"><input type="checkbox" name="ids" value="${echapper(p.id)}" form="lot" aria-label="Choisir ${echapper(p.nom)}"></td>
-        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a><div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
+        <td><a href="/p/${encodeURIComponent(p.id)}" class="nom">${echapper(p.nom)}</a>${etiquetteRecente(p)}<div class="discret">${[cibles[p.cible]?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}</div></td>
         <td>${badge(p.statut)}</td>
         <td>${priorite(p.score)}</td>
         <td class="tronque">${
@@ -158,6 +161,9 @@ async function liste(url: URL, env: Env) {
       <select name="cible" onchange="this.form.submit()"><option value="">Toutes les cibles</option>${optionsCibles(cibles, filtres.cible)}</select>
       <select name="categorie" onchange="this.form.submit()"><option value="">Toutes les catégories</option>${optionsCategories}</select>
       <select name="ville" onchange="this.form.submit()"><option value="">Toutes les communes</option>${optionsVilles}</select>
+      <select name="origine" onchange="this.form.submit()"><option value="">Toutes les sources</option>${Object.entries(ORIGINES)
+        .map(([cle, libelle]) => `<option value="${cle}" ${filtres.origine === cle ? 'selected' : ''}>${libelle}</option>`)
+        .join('')}</select>
       <select name="tri" onchange="this.form.submit()"><option value="priorite" ${parPriorite ? 'selected' : ''}>Par priorité</option><option value="recent" ${parPriorite ? '' : 'selected'}>Plus récents</option></select>
       <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
       <input type="search" name="q" value="${echapper(filtres.q)}" placeholder="Chercher un nom, un email, un site, une note…">
@@ -257,6 +263,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
             ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\//, '')) : '<span class="discret">aucun</span>')}
             ${ligne('Fiche Google', p.fiche_google ? `${lienExterne(p.fiche_google, 'Ouvrir')}${p.note_google ? ` <span class="discret">· ${p.note_google} ★ (${p.avis_google ?? 0} avis)</span>` : ''}` : '')}
             ${ligne('Catégorie', echapper(p.categorie))}
+            ${ligne('Source', p.origine === 'sirene' ? `Registre des entreprises${p.creation ? `, créée le ${date(p.creation)}` : ''}` : '')}
             ${ligne('Recherche', echapper(p.recherche))}
           </dl></div></section>
         ${
@@ -318,6 +325,7 @@ async function exporter(requete: Request, env: Env) {
     raison: '',
     tri: '',
     q: String(donnees.get('q') ?? ''),
+    origine: String(donnees.get('origine') ?? ''),
   };
   const { where, valeurs } = clauses(filtres);
   // Une adresse désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.
@@ -344,7 +352,7 @@ async function exporter(requete: Request, env: Env) {
       salutation: 'Bonjour,',
       recherche: p.recherche,
       constat: p.constat,
-      source: 'votre fiche Google',
+      source: p.origine === 'sirene' ? 'le registre des entreprises' : 'votre fiche Google',
       site: p.site,
       telephone: p.telephone,
       ville: p.ville,
@@ -367,7 +375,7 @@ async function lot(requete: Request, env: Env) {
 
 async function reanalyser(requete: Request, env: Env) {
   const donnees = await requete.formData();
-  const filtres = Object.fromEntries(['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri'].map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
+  const filtres = Object.fromEntries(CLES_FILTRES.map((cle) => [cle, String(donnees.get(cle) ?? '')])) as Filtres;
   if (!REANALYSABLES.includes(filtres.statut)) return new Response('Statut non réanalysable', { status: 400 });
   const { where, valeurs } = clauses(filtres);
   const { meta } = await env.DB.prepare(`UPDATE prospects SET statut = 'a_analyser' ${where}`).bind(...valeurs).run();

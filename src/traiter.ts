@@ -18,6 +18,8 @@ import {
   lireFiltres,
   requeteFiltres,
   priorite,
+  CLES_FILTRES,
+  etiquetteRecente,
 } from './prospects';
 import { statutSelonEmail } from '../scripts/base.mjs';
 
@@ -150,7 +152,7 @@ export async function pageTraiter(url: URL, env: Env) {
     `Traiter · ${p.nom}`,
     `${retour}
     <header class="page-entete">
-      <div><h1>${echapper(p.nom)}</h1><p>${[cible?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}${p.note_google ? ` · ${p.note_google} ★ (${p.avis_google ?? 0} avis)` : ''}</p></div>
+      <div><h1>${echapper(p.nom)}</h1>${etiquetteRecente(p)}<p>${[cible?.nom ?? p.cible, p.categorie, p.ville].filter(Boolean).map(echapper).join(' · ')}${p.note_google ? ` · ${p.note_google} ★ (${p.avis_google ?? 0} avis)` : ''}</p></div>
       <div class="actions-entete">${badge(p.statut)}${priorite(p.score)}<span class="discret">${restantes} restante${restantes > 1 ? 's' : ''}</span></div>
     </header>
     <div class="traiter">
@@ -224,7 +226,7 @@ export async function actionEmail(env: Env, id: string, action: string, emailSai
 export async function traiter(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const url = new URL(requete.url);
-  for (const cle of ['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri']) url.searchParams.set(cle, String(donnees.get(cle) ?? ''));
+  for (const cle of CLES_FILTRES) url.searchParams.set(cle, String(donnees.get(cle) ?? ''));
   const id = String(donnees.get('id') ?? '');
   const action = String(donnees.get('action') ?? '');
   const note = donnees.get('note') == null ? null : String(donnees.get('note'));

@@ -48,6 +48,8 @@ export type Prospect = {
   email_statut: string;
   email_source: string;
   email_propose: string;
+  origine: string;
+  creation: string;
   constat_cle: string;
   constat: string;
   signaux: string;
@@ -64,7 +66,27 @@ export type Prospect = {
   avis: string;
 };
 
-export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string };
+export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string; origine: string };
+
+export const CLES_FILTRES = ['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri', 'origine'] as const;
+
+export const ORIGINES: Record<string, string> = { maps: 'Google Maps', sirene: 'Nouvelles entreprises', recent: 'Récentes' };
+
+const UN_AN_MS = 365 * 24 * 60 * 60 * 1000;
+
+// Récente : créée dans l'année d'après le registre, ou sur Google sans site et avec très peu d'avis.
+const RECENTE = "(creation >= ? OR (origine = 'maps' AND site = '' AND COALESCE(avis_google, 0) <= 5))";
+
+export function estRecente(p: Pick<Prospect, 'creation' | 'origine' | 'site' | 'avis_google'>) {
+  if (p.creation) return Date.parse(p.creation) >= Date.now() - UN_AN_MS;
+  return p.origine === 'maps' && !p.site && (p.avis_google ?? 0) <= 5;
+}
+
+export function etiquetteRecente(p: Pick<Prospect, 'creation' | 'origine' | 'site' | 'avis_google'>) {
+  if (!estRecente(p)) return '';
+  const titre = p.creation ? `Créée le ${new Date(p.creation).toLocaleDateString('fr-FR')}` : 'Pas de site et très peu d’avis Google : sans doute une entreprise récente';
+  return `<span class="etiquette-recente" title="${echapper(titre)}">${p.creation ? `Créée ${new Date(p.creation).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })}` : 'Récente'}</span>`;
+}
 
 // Statuts que « Réanalyser » renvoie en analyse.
 export const REANALYSABLES = ['nouveau', 'a_verifier', 'a_ecrire', 'a_enrichir', 'sans_email', 'plus_tard'];
@@ -78,6 +100,7 @@ export function lireFiltres(url: URL): Filtres {
     raison: url.searchParams.get('raison') ?? '',
     tri: url.searchParams.get('tri') ?? '',
     q: url.searchParams.get('q') ?? '',
+    origine: url.searchParams.get('origine') ?? '',
   };
 }
 
@@ -103,6 +126,13 @@ export function clauses(filtres: Filtres, sansStatut = false) {
   if (filtres.raison && !sansStatut) {
     conditions.push('raison = ?');
     valeurs.push(filtres.raison);
+  }
+  if (filtres.origine === 'recent') {
+    conditions.push(RECENTE);
+    valeurs.push(new Date(Date.now() - UN_AN_MS).toISOString().slice(0, 10));
+  } else if (filtres.origine) {
+    conditions.push('origine = ?');
+    valeurs.push(filtres.origine);
   }
   if (filtres.q) {
     conditions.push('(nom LIKE ? OR email LIKE ? OR site LIKE ? OR note LIKE ?)');
@@ -159,7 +189,7 @@ export function liensRecherche(p: Pick<Prospect, 'nom' | 'ville' | 'site' | 'fic
 
 // Priorité sur 100 : une entreprise bien installée (beaucoup d'avis, bonne note)
 // avec une présence en ligne faible est le meilleur prospect.
-export const SCORE = `(CASE WHEN constat_cle IN ('pasDeSite', 'reseauSocial', 'annuaire') THEN 40 WHEN constat_cle <> '' THEN 20 ELSE 0 END
+export const SCORE = `(CASE WHEN constat_cle IN ('pasDeSite', 'reseauSocial', 'annuaire', 'creation') THEN 40 WHEN constat_cle <> '' THEN 20 ELSE 0 END
   + MIN(COALESCE(avis_google, 0), 60) / 2
   + CASE WHEN note_google >= 4.5 THEN 10 WHEN note_google >= 4 THEN 5 ELSE 0 END
   + CASE WHEN email_statut IN ('generique', 'entreprise') THEN 15 WHEN email <> '' THEN 10 ELSE 0 END

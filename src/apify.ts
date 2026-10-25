@@ -1,6 +1,8 @@
-// Lance et lit les extractions Google Maps sur Apify (acteur compass/crawler-google-places).
+// Lance et lit les extractions sur Apify : Google Maps (acteur compass/crawler-google-places)
+// et les entreprises tout juste créées du registre Sirene (acteur fit_melon/new-french-companies-finder-sirene).
 
 const ACTEUR = 'compass~crawler-google-places';
+const ACTEUR_SIRENE = 'fit_melon~new-french-companies-finder-sirene';
 
 function api(env: Env, chemin: string) {
   return `${String(env.APIFY_API || 'https://api.apify.com').replace(/\/$/, '')}/v2${chemin}`;
@@ -29,6 +31,25 @@ export async function lancer(env: Env, termes: string[], parRecherche: number, c
       // Option payante d'Apify : visite les sites et renvoie les emails dans `emails`.
       // Notre analyse repasse de toute façon sur le site pour le constat.
       scrapeContacts: contacts,
+    }),
+  });
+  return { runId: data.data.id, datasetId: data.data.defaultDatasetId };
+}
+
+// Entreprises créées ces `jours` derniers jours, par département et code NAF. Pas
+// d'email ni de site : la recherche d'email de Claude prend le relais.
+export async function lancerSirene(env: Env, demande: { departements: string[]; naf: string[]; jours: number; max: number }) {
+  const { data } = await appeler<{ data: { id: string; defaultDatasetId: string } }>(env, `/acts/${ACTEUR_SIRENE}/runs`, {
+    method: 'POST',
+    body: JSON.stringify({
+      departments: demande.departements,
+      nafCodes: demande.naf,
+      lastNDays: demande.jours,
+      onlyHeadquarters: true,
+      onlyActive: true,
+      maxResults: demande.max,
+      // Clé INSEE facultative et gratuite : sans elle, l'acteur passe par l'API Recherche d'entreprises.
+      ...(env.INSEE_API_KEY ? { inseeApiKey: env.INSEE_API_KEY } : {}),
     }),
   });
   return { runId: data.data.id, datasetId: data.data.defaultDatasetId };

@@ -12,7 +12,12 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [], recherches: [] };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [] };
+  // Registre Sirene : une entreprise créée il y a 10 jours, et un résultat vide.
+  const creees = [
+    { status: 'found', siret: '12345678900011', siren: '123456789', name: 'DOMAINE NOUVEAU EARL', creationDate: new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10), nafCode: '01.21Z', address: '3 RUE DES VIGNES', postalCode: '67140', city: 'BARR', department: '67' },
+    { status: 'not_found' },
+  ];
   const serveur = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const json = (corps, entetes = {}) => {
@@ -27,6 +32,21 @@ function demarrerFauxApify(fiches) {
         json({ data: { id: 'run1', defaultDatasetId: 'ds1' } });
       });
       return;
+    }
+    if (req.method === 'POST' && url.pathname === '/v2/acts/fit_melon~new-french-companies-finder-sirene/runs') {
+      let corps = '';
+      req.on('data', (morceau) => (corps += morceau));
+      req.on('end', () => {
+        appels.sirene.push(JSON.parse(corps));
+        json({ data: { id: 'run2', defaultDatasetId: 'ds2' } });
+      });
+      return;
+    }
+    if (url.pathname === '/v2/actor-runs/run2') return json({ data: { status: 'SUCCEEDED' } });
+    if (url.pathname === '/v2/datasets/ds2') return json({ data: { itemCount: creees.length } });
+    if (url.pathname === '/v2/datasets/ds2/items') {
+      const debut = Number(url.searchParams.get('offset'));
+      return json(creees.slice(debut, debut + Number(url.searchParams.get('limit'))), { 'x-apify-pagination-total': String(creees.length) });
     }
     if (url.pathname === '/v2/actor-runs/run1') {
       appels.etat += 1;
@@ -82,7 +102,9 @@ function demarrerFauxApify(fiches) {
           }
           const trouvaille = texte.includes('Entreprise : Domaine E')
             ? { email: 'bonjour@domaine-e.fr', source: `http://127.0.0.1:${port}/annuaire-e/` }
-            : texte.includes('Entreprise : Domaine G')
+            : texte.includes('Entreprise : Domaine Nouveau EARL')
+              ? { email: 'contact@domaine-nouveau.fr', source: `http://127.0.0.1:${port}/annuaire-e/` }
+              : texte.includes('Entreprise : Domaine G')
               ? { email: 'devine@domaine-g.fr', source: `http://127.0.0.1:${port}/annuaire-g/` }
               : { email: '', source: '' };
           return reponse([{ type: 'text', text: `Voici : ${JSON.stringify(trouvaille)}` }]);
@@ -103,7 +125,7 @@ function demarrerFauxApify(fiches) {
     }
     if (url.pathname === '/annuaire-e/' || url.pathname === '/annuaire-g/') {
       res.writeHead(200, { 'content-type': 'text/html' });
-      return res.end(url.pathname === '/annuaire-e/' ? '<p>Domaine E, Andlau : bonjour@domaine-e.fr</p>' : '<p>Domaine G, Barr : pas d’adresse ici</p>');
+      return res.end(url.pathname === '/annuaire-e/' ? '<p>Domaine E, Andlau : bonjour@domaine-e.fr</p><p>Domaine Nouveau, Barr : contact@domaine-nouveau.fr</p>' : '<p>Domaine G, Barr : pas d’adresse ici</p>');
     }
     if (url.pathname === '/site-f/') {
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -300,6 +322,29 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ficheB, /badge-client/);
     assert.match(ficheB, /Signé/);
     assert.match(ficheB, /03 88 00 00 00/);
+
+    // Nouvelles entreprises du registre Sirene : import, angle « création », email trouvé par Claude.
+    const sirene = await fetch(`${admin}/recherches`, {
+      method: 'POST',
+      body: new URLSearchParams({ source: 'sirene', cible: 'vin', naf: '01.21Z Culture de la vigne\n11.02B Vinification\npas un code', departements: '67, 68', jours: '30', max: '300' }),
+      redirect: 'manual',
+    });
+    assert.equal(sirene.status, 303);
+    assert.deepEqual(apifyFinal.appels.sirene[0], { departments: ['67', '68'], nafCodes: ['01.21Z', '11.02B'], lastNDays: 30, onlyHeadquarters: true, onlyActive: true, maxResults: 300 });
+    await passage(); // import
+    await passage(); // analyse puis recherche d'email
+    const nouvelle = await (await fetch(`${admin}/p/${encodeURIComponent('siret:12345678900011')}`)).text();
+    assert.match(nouvelle, /<h1>Domaine Nouveau EARL<\/h1>/);
+    assert.match(nouvelle, /badge-nouveau/);
+    assert.match(nouvelle, /vous n&#39;avez pas encore de site internet/);
+    assert.match(nouvelle, /Registre des entreprises, créée le/);
+    assert.match(nouvelle, /contact@domaine-nouveau\.fr/);
+    const recentes = await (await fetch(`${admin}/prospects?origine=recent`)).text();
+    assert.match(recentes, /Domaine Nouveau EARL<\/a><span class="etiquette-recente"/);
+    assert.match(await (await fetch(`${admin}/prospects?origine=sirene`)).text(), /Culture de la vigne/);
+    const csv = await (await fetch(`${admin}/export`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', origine: 'sirene' }) })).text();
+    assert.match(csv, /contact@domaine-nouveau\.fr,,Domaine Nouveau EARL,"Bonjour,",création Barr,vous n'avez pas encore de site internet,le registre des entreprises/);
+    assert.equal(csv.trim().split('\n').length, 2);
   } finally {
     process.kill(-worker.pid);
     apifyFinal.serveur.close();

@@ -1,7 +1,7 @@
 // Les cibles (métier, communes, exclusions, ordre des constats) sont gardées en
 // base pour être modifiables dans l'admin. scripts/cibles.mjs donne les valeurs
 // de départ, insérées au premier chargement.
-import { CIBLES, CONSTATS, MODELE_EMAIL, VERSION_CIBLES } from '../scripts/cibles.mjs';
+import { CIBLES, CONSTATS, MODELE_CREATION, MODELE_EMAIL, VERSION_CIBLES } from '../scripts/cibles.mjs';
 import { echapper, icone, page } from './html';
 
 export type Cible = {
@@ -12,9 +12,11 @@ export type Cible = {
   exclure: RegExp[];
   constats: string[];
   modele?: string;
+  // Codes NAF pour les nouvelles entreprises, « 01.21Z Culture de la vigne ».
+  naf: string[];
 };
 
-type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string; modele: string };
+type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string; modele: string; naf: string };
 
 // Une recherche déjà faite depuis moins de 6 mois n'est pas relancée.
 export const DELAI_TERMES_MS = 183 * 24 * 60 * 60 * 1000;
@@ -32,13 +34,14 @@ function versCible(ligne: Ligne): Cible {
     exclure: (JSON.parse(ligne.exclure) as string[]).map((motif) => new RegExp(motif, 'i')),
     constats: JSON.parse(ligne.constats),
     modele: ligne.modele,
+    naf: JSON.parse(ligne.naf || '[]'),
   };
 }
 
 function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   return env.DB.prepare(
-    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes,
+    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le, naf) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes, naf = excluded.naf,
         exclure = excluded.exclure, constats = excluded.constats, modele = excluded.modele, modifie_le = excluded.modifie_le`,
   ).bind(
     cle,
@@ -50,12 +53,18 @@ function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
     JSON.stringify(cible.constats),
     cible.modele ?? '',
     new Date().toISOString(),
+    JSON.stringify(cible.naf ?? []),
   );
 }
 
 function unir<T>(existants: T[], ajouts: T[], cle: (valeur: T) => string = String) {
   const vus = new Set(existants.map(cle));
   return [...existants, ...ajouts.filter((valeur) => !vus.has(cle(valeur)))];
+}
+
+// « 01.21Z Culture de la vigne » → « 01.21Z ».
+export function codeNaf(ligne: string) {
+  return ligne.trim().split(/\s+/)[0].toUpperCase();
 }
 
 // Charge les cibles. Au premier lancement, ou quand scripts/cibles.mjs a une
@@ -78,6 +87,7 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
           metiers: unir(actuelle.metiers, defaut.metiers, normaliserTerme),
           communes: unir(actuelle.communes, defaut.communes, normaliserTerme),
           exclure: unir(actuelle.exclure, defaut.exclure, (motif) => motif.source),
+          naf: unir(actuelle.naf, defaut.naf ?? [], codeNaf),
         }
       : { cle, ...defaut };
   }
@@ -92,10 +102,10 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
 }
 
 // Lien mailto: avec l'email du modèle rempli pour ce prospect.
-export function brouillon(cible: Cible | undefined, p: { email: string; nom: string; recherche: string; constat: string; ville: string }) {
+export function brouillon(cible: Cible | undefined, p: { email: string; nom: string; recherche: string; constat: string; ville: string; constat_cle?: string }) {
   const remplir = (texte: string) =>
     texte.replace(/\{\{(nom|recherche|constat|ville)\}\}/g, (_, champ: 'nom' | 'recherche' | 'constat' | 'ville') => p[champ] ?? '');
-  const [objet, ...corps] = remplir(cible?.modele || MODELE_EMAIL).split('\n');
+  const [objet, ...corps] = remplir(p.constat_cle === 'creation' ? MODELE_CREATION : cible?.modele || MODELE_EMAIL).split('\n');
   return `mailto:${p.email}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps.join('\n').trim())}`;
 }
 
@@ -134,7 +144,7 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
 
   const choisie = url.searchParams.get('cle') ?? '';
   const nouvelle = url.searchParams.has('nouvelle');
-  const cible: Cible = cibles[choisie] ?? { cle: '', nom: '', metiers: [], communes: [], exclure: [], constats: ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'] };
+  const cible: Cible = cibles[choisie] ?? { cle: '', nom: '', metiers: [], communes: [], exclure: [], constats: ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'], naf: [] };
 
   const rangees = Object.values(cibles)
     .map((c) => {
@@ -176,7 +186,8 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
         <div class="ligne">
           <div class="champ"><label for="exclure">Mots qui excluent une fiche</label><textarea id="exclure" name="exclure" rows="10" placeholder="franchise">${echapper(cible.exclure.map((motif) => motif.source).join('\n'))}</textarea>
             <span class="aide">Un par ligne, cherché dans le nom et la catégorie Google. Les expressions régulières marchent aussi.</span></div>
-          <div></div>
+          <div class="champ"><label for="naf">Codes d’activité des nouvelles entreprises</label><textarea id="naf" name="naf" rows="10" placeholder="01.21Z Culture de la vigne">${echapper(cible.naf.join('\n'))}</textarea>
+            <span class="aide">Code NAF puis libellé, un par ligne. Sert à chercher les entreprises tout juste créées dans le registre Sirene.</span></div>
         </div>
         <div class="champ"><label for="modele">Email écrit à la main</label>
           <textarea id="modele" name="modele" rows="11">${echapper(cible.modele || MODELE_EMAIL)}</textarea>
@@ -241,6 +252,6 @@ export async function enregistrerCible(requete: Request, env: Env) {
     .sort((a, b) => a.rang - b.rang)
     .map(({ constat }) => constat);
 
-  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats, modele: modeleEnvoye(donnees.get('modele')) }).run();
+  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats, modele: modeleEnvoye(donnees.get('modele')), naf: lignes(donnees.get('naf')) }).run();
   return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}&message=${encodeURIComponent(`Cible « ${nom} » enregistrée`)}`, requete.url).toString(), 303);
 }

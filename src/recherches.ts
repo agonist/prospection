@@ -1,6 +1,6 @@
-import { lancer } from './apify';
+import { lancer, lancerSirene } from './apify';
 import { claudeActif, depenseDuJour, modele } from './claude';
-import { DELAI_TERMES_MS, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
+import { DELAI_TERMES_MS, barre, chargerCibles, codeNaf, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
 
 const ETATS: Record<string, string> = {
@@ -16,6 +16,7 @@ type Recherche = {
   apify_fiches: number;
   cible: string;
   termes: string;
+  source: string;
   statut: string;
   fiches: number;
   importees: number;
@@ -96,6 +97,7 @@ export async function pageRecherches(url: URL, env: Env) {
   const lignes = (recherches.results as Recherche[])
     .map((r) => {
       const termes = JSON.parse(r.termes) as string[];
+      if (r.source === 'sirene') termes.unshift('Sirene :');
       return `<tr>
         <td class="discret">${new Date(r.cree_le).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</td>
         <td class="nom">${echapper(cibles[r.cible]?.nom ?? r.cible)}</td>
@@ -113,7 +115,7 @@ export async function pageRecherches(url: URL, env: Env) {
   return page(
     'Recherches',
     `<header class="page-entete">
-      <div><h1>Recherches</h1><p>Lance une extraction Google Maps et suis son avancement.</p></div>
+      <div><h1>Recherches</h1><p>Lance une extraction Google Maps ou cherche les entreprises tout juste créées, et suis l’avancement.</p></div>
     </header>
     <div class="grille deux-colonnes">
       <form method="post" action="/recherches" class="carte">
@@ -141,8 +143,8 @@ export async function pageRecherches(url: URL, env: Env) {
           }
           <div class="champ"><label for="max">Fiches maximum par recherche</label>
             <input id="max" type="number" name="max" value="${MAX_DEFAUT}" min="1" max="200" required></div>
-          <label class="case"><input type="checkbox" name="contacts" value="1" checked>
-            <span><strong>Extraire les emails avec Apify</strong>Option payante « contacts enrichment », quelques dollars pour 1 000 fiches.</span></label>
+          <label class="case"><input type="checkbox" name="contacts" value="1">
+            <span><strong>Extraire aussi les emails avec Apify</strong>Option payante. Inutile en général : l’outil lit déjà les sites, et Claude cherche les emails manquants.</span></label>
           <label class="case"><input type="checkbox" name="forcer" value="1">
             <span><strong>Refaire les recherches déjà faites</strong>Par défaut, une recherche lancée il y a moins de 6 mois est sautée pour ne pas payer deux fois.</span></label>
           <div><button type="submit" class="btn">${icone('recherches')}Lancer la recherche</button></div>
@@ -163,6 +165,25 @@ export async function pageRecherches(url: URL, env: Env) {
         </div>
       </section>
     </div>
+    <form method="post" action="/recherches" class="carte" style="margin-top: 16px">
+      <input type="hidden" name="source" value="sirene">
+      <input type="hidden" name="cible" value="${echapper(nomCible)}">
+      <div class="carte-entete"><div><h2 class="carte-titre">Nouvelles entreprises</h2><p class="carte-description">Les entreprises tout juste créées dans le registre Sirene, pour ${echapper(cible?.nom ?? '')}. Souvent pas encore de site : l’email part avec un angle « félicitations pour le lancement ».</p></div></div>
+      <div class="carte-contenu formulaire">
+        <div class="ligne">
+          <div class="champ"><label for="naf">Codes d’activité (NAF)</label>
+            <textarea id="naf" name="naf" rows="6" required>${echapper((cible?.naf ?? []).join('\n'))}</textarea>
+            <span class="aide">Code puis libellé, un par ligne (<a href="/cibles?cle=${encodeURIComponent(nomCible)}">modifier la cible</a>).</span></div>
+          <div class="grille">
+            <div class="champ"><label for="departements">Départements</label><input id="departements" type="text" name="departements" value="67, 68" required></div>
+            <div class="champ"><label for="jours">Créées ces derniers jours</label><input id="jours" type="number" name="jours" value="30" min="1" max="365" required></div>
+            <div class="champ"><label for="max-sirene">Entreprises maximum</label><input id="max-sirene" type="number" name="max" value="300" min="1" max="2000" required></div>
+          </div>
+        </div>
+        <p class="aide">Gratuit chez Apify hors consommation de la plateforme. Une clé INSEE gratuite (<code>INSEE_API_KEY</code>) rend la recherche plus complète.</p>
+        <div><button type="submit" class="btn">${icone('recherches')}Chercher les nouvelles entreprises</button></div>
+      </div>
+    </form>
     <section class="carte" style="margin-top: 16px">
       <div class="carte-entete"><h2 class="carte-titre">Recherches lancées</h2></div>
       <div class="carte-contenu" style="padding: 12px 0 0">
@@ -184,6 +205,7 @@ export async function lancerRecherche(requete: Request, env: Env) {
       .split('\n')
       .map((ligne) => ligne.trim())
       .filter(Boolean);
+  if (donnees.get('source') === 'sirene') return lancerNouvelles(requete, env, nomCible, lignes('naf'), String(donnees.get('departements') ?? ''), donnees);
   const metiers = lignes('metiers');
   const communes = lignes('communes');
   const max = Math.min(200, Math.max(1, Number(donnees.get('max')) || 30));
@@ -230,4 +252,29 @@ export async function lancerRecherche(requete: Request, env: Env) {
     );
   }
   return Response.redirect(new URL(`/recherches?message=${encodeURIComponent(`Recherche lancée : ${termes.length} recherches sur Google Maps`)}`, requete.url).toString(), 303);
+}
+
+async function lancerNouvelles(requete: Request, env: Env, nomCible: string, naf: string[], departements: string, donnees: FormData) {
+  const codes = [...new Set(naf.map(codeNaf).filter((code) => /^\d{2}\.\d{2}[A-Z]$/.test(code)))];
+  const depts = [...new Set(departements.split(/[\s,;]+/).map((d) => d.trim().toUpperCase()).filter(Boolean))];
+  const jours = Math.min(365, Math.max(1, Number(donnees.get('jours')) || 30));
+  const max = Math.min(2000, Math.max(1, Number(donnees.get('max')) || 300));
+  if (!codes.length || !depts.length) return new Response('Codes NAF (ex. 01.21Z) et départements obligatoires', { status: 400 });
+  try {
+    const { runId, datasetId } = await lancerSirene(env, { departements: depts, naf: codes, jours, max });
+    const maintenant = new Date().toISOString();
+    const { meta } = await env.DB.prepare("INSERT INTO recherches (cible, termes, run_id, dataset_id, cree_le, source) VALUES (?, ?, ?, ?, ?, 'sirene')")
+      .bind(nomCible, JSON.stringify([...codes, `${jours} jours`, depts.join(', ')]), runId, datasetId, maintenant)
+      .run();
+    await env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)')
+      .bind(maintenant, 'info', `Recherche n°${meta.last_row_id} lancée sur Apify : entreprises créées ces ${jours} derniers jours (${codes.join(', ')}) dans le ${depts.join(', ')}.`, meta.last_row_id)
+      .run();
+  } catch (erreur) {
+    return page(
+      'Erreur',
+      `<a class="retour" href="/recherches">${icone('retour')}Recherches</a><div class="alerte danger"><p>${echapper(String(erreur))}</p></div>`,
+      'recherches',
+    );
+  }
+  return Response.redirect(new URL(`/recherches?cible=${encodeURIComponent(nomCible)}&message=${encodeURIComponent('Recherche des nouvelles entreprises lancée')}`, requete.url).toString(), 303);
 }

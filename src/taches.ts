@@ -5,6 +5,7 @@
 import { STATUTS_AUTOMATIQUES, identifiant, statutApresAnalyse } from '../scripts/base.mjs';
 import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
+import { CONSTAT_CREATION } from '../scripts/cibles.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
@@ -30,6 +31,7 @@ type Recherche = {
   importees: number;
   apify_statut: string;
   apify_fiches: number;
+  source: string;
 };
 
 const ETATS_APIFY: Record<string, string> = {
@@ -54,16 +56,46 @@ const AUTOMATIQUES = STATUTS_AUTOMATIQUES.map((statut) => `'${statut}'`).join(',
 // Insère la fiche, ou met à jour ses données. Un statut posé à la main reste ;
 // un statut automatique repasse en « à analyser » pour rafraîchir le constat.
 const UPSERT = `INSERT INTO prospects
-  (id, cible, nom, categorie, ville, adresse, telephone, site, fiche_google, note_google, avis_google, recherche, emails_fiche, statut, raison, cree_le, vu_le, statut_le)
-  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16, ?16)
+  (id, cible, nom, categorie, ville, adresse, telephone, site, fiche_google, note_google, avis_google, recherche, emails_fiche, statut, raison, cree_le, vu_le, statut_le, origine, creation)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16, ?16, ?17, ?18)
   ON CONFLICT (id) DO UPDATE SET
     cible = excluded.cible, nom = excluded.nom, categorie = excluded.categorie, ville = excluded.ville,
     adresse = excluded.adresse, telephone = excluded.telephone, site = excluded.site,
     fiche_google = excluded.fiche_google, note_google = excluded.note_google, avis_google = excluded.avis_google,
     recherche = excluded.recherche, emails_fiche = excluded.emails_fiche, vu_le = excluded.vu_le,
+    creation = CASE WHEN excluded.creation <> '' THEN excluded.creation ELSE prospects.creation END,
     raison = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) THEN excluded.raison ELSE prospects.raison END,
     statut_le = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) AND prospects.statut <> excluded.statut THEN excluded.statut_le ELSE prospects.statut_le END,
     statut = CASE WHEN prospects.statut IN (${AUTOMATIQUES}) THEN excluded.statut ELSE prospects.statut END`;
+
+const FORMES = new Set(['SARL', 'SAS', 'SASU', 'EURL', 'EARL', 'SCEA', 'GAEC', 'SCI', 'SA', 'EI', 'SNC']);
+
+// Les noms du registre sont souvent en capitales : « DOMAINE MULLER SARL » → « Domaine Muller SARL ».
+function nomLisible(nom: string) {
+  if (nom !== nom.toUpperCase()) return nom;
+  return nom
+    .toLowerCase()
+    .replace(/[\p{L}\d]+/gu, (mot) => (FORMES.has(mot.toUpperCase()) ? mot.toUpperCase() : mot.charAt(0).toUpperCase() + mot.slice(1)));
+}
+
+// Une entreprise du registre Sirene, mise au format d'une fiche Google Maps.
+export function ficheSirene(item: Record<string, unknown>, cible: Cible | undefined): Record<string, unknown> | null {
+  if (item.status !== 'found' || !item.siret || !item.name) return null;
+  const code = String(item.nafCode ?? '');
+  const libelle = cible?.naf.find((ligne) => ligne.toUpperCase().startsWith(code.toUpperCase()))?.slice(code.length).trim();
+  const adresse = String(item.address ?? '');
+  const ville = nomLisible(String(item.city ?? ''));
+  return {
+    placeId: `siret:${item.siret}`,
+    title: nomLisible(String(item.name)),
+    categoryName: libelle || code,
+    city: ville,
+    address: adresse.includes(String(item.postalCode ?? '')) ? adresse : [adresse, item.postalCode, ville].filter(Boolean).join(' '),
+    searchString: `création ${ville}`.trim(),
+    origine: 'sirene',
+    creation: String(item.creationDate ?? ''),
+  };
+}
 
 export function ligneImport(fiche: Record<string, unknown>, nomCible: string, cible: Cible | undefined, maintenant: string) {
   const prospect = normaliser(fiche);
@@ -87,6 +119,8 @@ export function ligneImport(fiche: Record<string, unknown>, nomCible: string, ci
     raison ? 'hors_cible' : 'a_analyser',
     raison ?? '',
     maintenant,
+    fiche.origine === 'sirene' ? 'sirene' : 'maps',
+    String(fiche.creation ?? ''),
   ];
 }
 
@@ -122,7 +156,11 @@ async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Ci
   }
 
   const lot = await fiches(env, recherche.dataset_id, recherche.importees, taille(env.IMPORT_PAR_PASSAGE, IMPORT_PAR_PASSAGE));
-  const lignes = lot.fiches.map((fiche) => ligneImport(fiche, recherche.cible, cibles[recherche.cible], maintenant)).filter((ligne) => ligne !== null);
+  const cible = cibles[recherche.cible];
+  const lignes = lot.fiches
+    .map((fiche) => (recherche.source === 'sirene' ? ficheSirene(fiche, cible) : fiche))
+    .map((fiche) => fiche && ligneImport(fiche, recherche.cible, cible, maintenant))
+    .filter((ligne) => ligne != null);
   const importees = recherche.importees + lot.fiches.length;
   const fini = lot.fiches.length === 0 || importees >= lot.total;
   const horsCible = lignes.filter((ligne) => ligne[13] === 'hors_cible').length;
@@ -164,10 +202,10 @@ export function decider(analyse: Analyse, avis: Avis | null) {
   return { ...resultat, constat };
 }
 
-type AAnalyser = { id: string; cible: string; nom: string; categorie: string; ville: string; site: string; emails_fiche: string; email: string; email_source: string };
+type AAnalyser = { id: string; cible: string; nom: string; categorie: string; ville: string; site: string; emails_fiche: string; email: string; email_source: string; origine: string };
 
 async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: string) {
-  const { results } = await env.DB.prepare("SELECT id, cible, nom, categorie, ville, site, emails_fiche, email, email_source FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
+  const { results } = await env.DB.prepare("SELECT id, cible, nom, categorie, ville, site, emails_fiche, email, email_source, origine FROM prospects WHERE statut = 'a_analyser' ORDER BY vu_le LIMIT ?")
     .bind(taille(env.ANALYSES_PAR_PASSAGE, ANALYSES_PAR_PASSAGE))
     .all<AAnalyser>();
   if (!results.length) return;
@@ -180,6 +218,8 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
         .then(async () => {
           const cible = cibles[p.cible];
           const analyse = await analyser({ site: p.site, nom: p.nom, emails: JSON.parse(p.emails_fiche || '[]').concat(p.email_source ? [p.email] : []) }, cible ?? { constats: [] });
+          // Nouvelle entreprise sans site : pas de fiche Google à citer, l'email parle de sa création.
+          if (p.origine === 'sirene' && !p.site) analyse.constat = { cle: 'creation', phrase: CONSTAT_CREATION };
           // Claude ne juge que les sites qu'on a pu lire ; sans clé, les règles suffisent.
           let avis: Avis | null = null;
           let erreurClaude = '';
