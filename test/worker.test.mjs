@@ -108,7 +108,8 @@ function demarrerFauxApify(fiches) {
         const reponse = (content, stop_reason = 'end_turn') =>
           json({ id: 'msg_1', type: 'message', role: 'assistant', model: entree.model, content, stop_reason, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
         if (entree.tools) {
-          // Recherche d'email avec les outils web : E est trouvé (après une pause), G proposé sans preuve, H introuvable.
+          // Recherche d'email avec les outils web : E est trouvé (après une pause), G absent de la page citée,
+          // I sur Facebook (page illisible), J sans source, H introuvable.
           appels.recherches.push({ beta: req.headers['anthropic-beta'], entree });
           const port = serveur.address().port;
           if (texte.includes('Entreprise : Domaine E') && entree.messages.length === 1) {
@@ -120,6 +121,10 @@ function demarrerFauxApify(fiches) {
               ? { email: 'contact@domaine-nouveau.fr', source: `http://127.0.0.1:${port}/annuaire-e/` }
               : texte.includes('Entreprise : Domaine G')
               ? { email: 'devine@domaine-g.fr', source: `http://127.0.0.1:${port}/annuaire-g/` }
+              : texte.includes('Entreprise : Domaine I')
+              ? { email: 'domaine.i@gmail.com', source: 'https://www.facebook.com/domaine.i' }
+              : texte.includes('Entreprise : Domaine J')
+              ? { email: 'contact@domaine-j.fr', source: '' }
               : { email: '', source: '' };
           return reponse([{ type: 'text', text: `Voici : ${JSON.stringify(trouvaille)}` }]);
         }
@@ -181,6 +186,8 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     { placeId: 'F', title: 'Domaine F', city: 'Barr' },
     { placeId: 'G', title: 'Domaine G', city: 'Barr' },
     { placeId: 'H', title: 'Domaine H', city: 'Andlau' },
+    { placeId: 'I', title: 'Domaine I', city: 'Barr' },
+    { placeId: 'J', title: 'Domaine J', city: 'Barr' },
   ];
   const apifyFinal = await demarrerFauxApify(fiches);
   fiches[0].website = `http://127.0.0.1:${apifyFinal.port}/site-a/`;
@@ -216,12 +223,13 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(await (await fetch(`${admin}/recherches`)).text(), /Extraction Apify en cours/);
     await passage(); // terminé : import
     assert.match(await (await fetch(`${admin}/recherches`)).text(), /Terminée/);
-    await passage(); // analyse des sites
+    await passage(); // analyse des sites et premières recherches d'email
+    await passage(); // dernières recherches d'email
 
     const suivi = await (await fetch(`${admin}/recherches`)).text();
     assert.match(suivi, /Dernier passage de la tâche il y a \d+ s/);
     assert.match(suivi, /extraction Apify en cours, 0 fiches trouvées/);
-    assert.match(suivi, /8 \/ 8 fiches importées/);
+    assert.match(suivi, /10 \/ 10 fiches importées/);
     assert.match(suivi, /Domaine B : prêt à contacter/);
 
     const liste = await (await fetch(`${admin}/prospects?cible=vin`)).text();
@@ -244,13 +252,26 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     // Adresse nominative : à écrire à la main, avec l'email prérempli.
     assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Domaine%20D[^"]*j&#39;ai%20remarqu%C3%A9%20que%20vous%20n&#39;avez%20pas%20encore%20de%20site/);
     // Pas d'email sur le site : Claude le cherche sur le web, et l'adresse doit figurer dans la page citée.
-    assert.equal(apifyFinal.appels.recherches.length, 4); // E deux fois (pause_turn), G et H
+    assert.equal(apifyFinal.appels.recherches.length, 6); // E deux fois (pause_turn), G, H, I et J
     assert.ok(apifyFinal.appels.recherches.every((a) => a.entree.tools.some((t) => t.type === 'web_search_20260209')));
     assert.equal(apifyFinal.appels.recherches.find((a) => a.entree.messages.length === 2).entree.messages[1].role, 'assistant');
     assert.match(ligne('Domaine E'), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /lu sur 127\.0\.0\.1/);
     assert.match(ligne('Domaine G'), /badge-a_verifier[\s\S]*proposé : devine@domaine-g\.fr/);
     assert.match(ligne('Domaine H'), /badge-sans_email/);
+    // Adresse vue sur Facebook, que l'outil ne peut pas relire : prête, marquée « non vérifiée ».
+    assert.match(ligne('Domaine I'), /badge-nouveau[\s\S]*domaine\.i@gmail\.com[\s\S]*href="https:\/\/www\.facebook\.com\/domaine\.i"[^>]*>non vérifiée</);
+    // Adresse sans page source : jetée.
+    assert.match(ligne('Domaine J'), /badge-sans_email/);
+    assert.doesNotMatch(ligne('Domaine J'), /domaine-j/);
+    const nonVerifiees = await (await fetch(`${admin}/prospects?cible=vin&statut=nouveau&verif=non_verifie`)).text();
+    assert.match(nonVerifiees, /Adresses non vérifiées \(1\)/);
+    assert.match(nonVerifiees, />Domaine I</);
+    assert.doesNotMatch(nonVerifiees, />Domaine B</);
+    const csvNonVerifiees = await (await fetch(`${admin}/export`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', verif: 'non_verifie' }) })).text();
+    assert.equal(csvNonVerifiees.trim().split('\n').length, 2);
+    assert.match(csvNonVerifiees, /^domaine\.i@gmail\.com,/m);
+    assert.doesNotMatch(await (await fetch(`${admin}/prospects?cible=vin&statut=nouveau&verif=verifie`)).text(), />Domaine I</);
     assert.doesNotMatch(liste, /tel:/);
 
     // Mode traitement : valider l'adresse proposée, ou coller celle trouvée soi-même.
@@ -282,6 +303,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-a_analyser/);
     await passage();
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
+    assert.match(await (await fetch(`${admin}/p/I`)).text(), /badge-nouveau[\s\S]*domaine\.i@gmail\.com[\s\S]*non vérifiée/);
     assert.equal(apifyFinal.appels.recherches.length, recherchesAvant);
 
     // Tableau de bord en page d'accueil ; les anciens liens filtrés mènent à la liste.
@@ -423,6 +445,11 @@ test('Claude propose une cible, pilote l’outil par MCP, et le pilote automatiq
   const vars = join(persistance, '.dev.vars');
   writeFileSync(vars, `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nOPENROUTER_API_KEY=cle-openrouter\nOPENROUTER_API=http://127.0.0.1:${faux.port}/openrouter/\n`);
   execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  // Une proposition faite avec les anciennes règles, vue sur Instagram.
+  const ancienne = `INSERT INTO prospects (id, cible, nom, ville, statut, raison, email_propose, email_source, cree_le, vu_le, statut_le)
+    VALUES ('ancienne', 'vin', 'Studio Ancien', 'Barr', 'a_verifier', 'Claude propose une adresse sans avoir pu la retrouver dans la page citée : vérifie la source',
+    'contact@studio-ancien.fr', 'https://www.instagram.com/studio.ancien', '2026-01-01', '2026-01-01', '2026-01-01')`;
+  execFileSync('npx', ['wrangler', 'd1', 'execute', 'prospection', '--local', '--persist-to', persistance, '--command', ancienne], { cwd: racine, stdio: 'ignore' });
   const port = PORT_WORKER + 2;
   const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
     cwd: racine,
@@ -522,6 +549,16 @@ test('Claude propose une cible, pilote l’outil par MCP, et le pilote automatiq
     assert.equal(prouvee.statut, 'nouveau');
     assert.equal(prouvee.email, 'contact@domaine-nouveau.fr');
     assert.equal((await outil('enregistrer_email', { id: 'P1', email: 'pas une adresse', source: 'Bas' })).isError, true);
+    assert.equal((await outil('enregistrer_email', { id: 'P1', email: 'studio@lumiere.fr', source: 'sa page Facebook' })).isError, true);
+    const facebook = lire(await outil('enregistrer_email', { id: 'P1', email: 'studio.lumiere@gmail.com', source: 'https://www.facebook.com/studiolumiere' }));
+    assert.equal(facebook.statut, 'nouveau');
+    assert.equal(facebook.verifiee, false);
+    assert.equal(lire(await outil('chercher_prospects', { verif: 'non_verifie', q: 'Lumière' })).total, 1);
+    // L'ancienne proposition vue sur Instagram est reprise en « Prêt », non vérifiée.
+    const reprise = lire(await outil('voir_prospect', { id: 'ancienne' }));
+    assert.equal(reprise.statut, 'nouveau');
+    assert.equal(reprise.email, 'contact@studio-ancien.fr');
+    assert.equal(reprise.email_verifie, false);
     assert.equal(lire(await outil('changer_statut', { ids: ['P1', 'inconnu'], statut: 'desinscrit', note: 'Ne veut plus d’email' })).modifiees, 1);
     assert.deepEqual(lire(await outil('changer_statut', { ids: ['P1'], statut: 'nouveau' })).desinscrites_inchangees, ['P1']);
     const fiche = lire(await outil('voir_prospect', { id: 'P1' }));

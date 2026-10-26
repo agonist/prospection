@@ -30,6 +30,8 @@ import {
   motif,
   siteCourt,
   GROUPES_STATUTS,
+  VERIFICATIONS,
+  nonVerifiee,
 } from './prospects';
 import { echapper, icone, nomLisible, page } from './html';
 import { enregistrerPilote, lancerRecherche, pageRecherches } from './recherches';
@@ -57,7 +59,8 @@ async function liste(url: URL, env: Env) {
   const parPriorite = filtres.tri ? filtres.tri === 'priorite' : TRAITABLES.includes(filtres.statut);
   const parCible = filtres.cible ? 'WHERE cible = ?' : '';
   const sansRaison = clauses({ ...filtres, raison: '' });
-  const [lignes, total, parStatut, villes, categories, parRaison, aPurger, travail] = await env.DB.batch([
+  const sansVerif = clauses({ ...filtres, verif: 'non_verifie' });
+  const [lignes, total, parStatut, villes, categories, parRaison, aPurger, travail, aVerifier] = await env.DB.batch([
     env.DB.prepare(`SELECT *, ${SCORE} AS score FROM prospects ${where} ORDER BY ${parPriorite ? 'score DESC, ' : ''}vu_le DESC, nom LIMIT ? OFFSET ?`).bind(...valeurs, PAR_PAGE, (numero - 1) * PAR_PAGE),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${where}`).bind(...valeurs),
     env.DB.prepare(`SELECT statut, COUNT(*) AS n FROM prospects ${sansStatut.where} GROUP BY statut`).bind(...sansStatut.valeurs),
@@ -70,6 +73,7 @@ async function liste(url: URL, env: Env) {
     env.DB.prepare(
       "SELECT (SELECT COUNT(*) FROM recherches WHERE statut IN ('en_cours', 'import')) AS recherches, (SELECT COUNT(*) FROM prospects WHERE statut = 'a_analyser') AS analyses",
     ),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM prospects ${sansVerif.where}`).bind(...sansVerif.valeurs),
   ]);
   const enCours = travail.results[0] as { recherches: number; analyses: number };
 
@@ -111,7 +115,15 @@ async function liste(url: URL, env: Env) {
     .filter(({ ville }) => ville)
     .map(({ ville, n }) => `<option value="${echapper(ville)}" ${filtres.ville === ville ? 'selected' : ''}>${echapper(ville)} (${n})</option>`)
     .join('');
-  const filtre = filtres.cible || filtres.categorie || filtres.ville || filtres.origine || filtres.q;
+  const filtre = filtres.cible || filtres.categorie || filtres.ville || filtres.origine || filtres.verif || filtres.q;
+  // Le filtre des adresses non vérifiées n'apparaît que là où il y en a.
+  const nonVerifiees = (aVerifier.results[0] as { n: number }).n;
+  const choixVerif =
+    nonVerifiees || filtres.verif
+      ? `<select name="verif" class="${rempli(filtres.verif)}" onchange="this.form.submit()" aria-label="Vérification de l’adresse"><option value="">Toutes les adresses</option>${Object.entries(VERIFICATIONS)
+          .map(([cle, libelle]) => `<option value="${cle}" ${filtres.verif === cle ? 'selected' : ''}>${libelle}${cle === 'non_verifie' ? ` (${nonVerifiees})` : ''}</option>`)
+          .join('')}</select>`
+      : '';
 
   const rangees = prospects
     .map(
@@ -166,6 +178,7 @@ async function liste(url: URL, env: Env) {
         <select name="origine" class="${rempli(filtres.origine)}" onchange="this.form.submit()" aria-label="Source"><option value="">Toutes les sources</option>${Object.entries(ORIGINES)
           .map(([cle, libelle]) => `<option value="${cle}" ${filtres.origine === cle ? 'selected' : ''}>${libelle}</option>`)
           .join('')}</select>
+        ${choixVerif}
         <input type="hidden" name="statut" value="${echapper(filtres.statut)}">
         ${filtre ? `<a class="effacer" href="${lienFiltres({ statut: filtres.statut })}">Effacer les filtres</a>` : ''}
       </form>
@@ -262,7 +275,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
         }
         <section class="carte"><div class="carte-entete"><h2 class="carte-titre">Coordonnées</h2></div>
           <div class="carte-contenu"><dl>
-            ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Email', p.email ? `${p.statut === 'a_ecrire' ? contact(p, cibles) : `<span class="avec-icone">${icone('email', 14)}${echapper(p.email)}</span>${nonVerifiee(p)}`} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
             ${ligne('Téléphone', echapper(p.telephone))}
             ${ligne('Site', p.site ? lienExterne(p.site, p.site.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')) : '<span class="discret">pas de site</span>')}
@@ -331,6 +344,7 @@ async function exporter(requete: Request, env: Env) {
     tri: '',
     q: String(donnees.get('q') ?? ''),
     origine: String(donnees.get('origine') ?? ''),
+    verif: String(donnees.get('verif') ?? ''),
   };
   const { where, valeurs } = clauses(filtres);
   // Une adresse désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.

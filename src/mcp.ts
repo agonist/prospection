@@ -4,10 +4,9 @@
 // JSON-RPC et reçoit sa réponse en JSON. Seulement en local (voir README).
 import { CONSTATS } from '../scripts/cibles.mjs';
 import { NAF } from '../scripts/naf.mjs';
-import { RAISONS } from '../scripts/base.mjs';
 import { chargerCibles, codeNaf, normaliserTerme, sauverCible, termesCible, texteBrouillon } from './cibles';
 import { claudeActif, depenseDuJour } from './claude';
-import { appliquerEmail, enregistrer, prouvee } from './enrichir';
+import { appliquerEmail, enregistrer, selonPreuve } from './enrichir';
 import { nomLisible } from './html';
 import { lancerCreations, lancerGoogleMaps, parametresCreations, termesRecents } from './lancements';
 import { lanceesAujourdhui, reglerPilote } from './pilote';
@@ -22,7 +21,7 @@ const TERMES_PAR_APPEL = 50;
 const INSTRUCTIONS = `Outil de prospection de C'est bien beau, le studio web de Bas en Alsace : il trouve des petites entreprises (Google Maps, registre des nouvelles entreprises), juge leur site avec Claude et prépare les emails.
 
 Règles à respecter :
-- N'invente jamais une adresse email. enregistrer_email ne prend qu'une adresse lue sur une page (donne son URL, elle est vérifiée) ou donnée par Bas.
+- N'invente jamais une adresse email, ne la devine jamais à partir du nom de domaine. enregistrer_email ne prend qu'une adresse lue sur une page (donne son URL exacte) ou donnée par Bas.
 - Une adresse nominative (prenom.nom@…) ne part jamais dans Smartlead : la fiche va en « À écrire » et Bas écrit lui-même depuis Tuta. voir_prospect donne le brouillon.
 - L'export vers Smartlead reste un clic de Bas dans l'admin. Ne passe une fiche « en_campagne » que si Bas a vraiment écrit.
 - Une fiche « desinscrit » ne change plus de statut.
@@ -90,6 +89,7 @@ function resume(p: Prospect, base: string) {
     categorie: p.categorie,
     email: p.email,
     email_type: NATURES[p.email_statut] ?? p.email_statut,
+    email_verifie: p.email ? p.email_verifie !== 0 : null,
     site: p.site,
     note_google: p.note_google,
     avis_google: p.avis_google,
@@ -176,6 +176,7 @@ const OUTILS: Outil[] = [
       ville: chaine('Ville exacte.'),
       categorie: chaine('Catégorie Google exacte.'),
       origine: chaine('maps (Google Maps), sirene (nouvelles entreprises) ou recent (créées il y a moins d’un an).', { enum: ['maps', 'sirene', 'recent'] }),
+      verif: chaine('verifie : adresses lues par l’outil ; non_verifie : adresses vues par Claude sur une page que l’outil ne peut pas relire.', { enum: ['verifie', 'non_verifie'] }),
       q: chaine('Texte cherché dans le nom, l’email, le site et la note.'),
       tri: chaine('priorite ou recent. Par défaut : priorité pour les files à traiter, sinon les plus récentes.', { enum: ['priorite', 'recent'] }),
       limite: entier('Nombre de fiches (25 par défaut).', 1, 100),
@@ -192,6 +193,7 @@ const OUTILS: Outil[] = [
         q: texte(args, 'q'),
         tri: texte(args, 'tri'),
         origine: texte(args, 'origine'),
+        verif: texte(args, 'verif'),
       };
       const limite = nombre(args, 'limite', 25, 1, 100);
       const page = nombre(args, 'page', 1, 1, 1000);
@@ -275,12 +277,12 @@ const OUTILS: Outil[] = [
     name: 'enregistrer_email',
     title: 'Enregistrer un email',
     description:
-      'Enregistre l’adresse email d’une fiche et la range (générique ou au nom de l’entreprise : prête pour Smartlead ; nominative : à écrire à la main). N’invente jamais d’adresse : source est l’URL de la page où l’adresse est écrite (elle est vérifiée ; si l’adresse n’y est pas, elle reste une proposition à vérifier), ou « Bas » quand Bas l’a donnée.',
+      'Enregistre l’adresse email d’une fiche et la range (générique ou au nom de l’entreprise : prête pour Smartlead ; nominative : à écrire à la main). N’invente jamais d’adresse : source est l’URL exacte de la page où l’adresse est écrite, ou « Bas » quand Bas l’a donnée. L’outil relit la page : si l’adresse y est, elle est vérifiée ; si la page ne peut pas être relue (Facebook, Instagram, annuaire), elle est utilisée mais marquée non vérifiée ; si la page est lue et que l’adresse n’y est pas, elle reste une proposition à vérifier.',
     inputSchema: schema(
       {
         id: chaine('Identifiant de la fiche.'),
         email: chaine('Adresse email, telle qu’écrite sur la source.'),
-        source: chaine('URL de la page où l’adresse est écrite, ou « Bas ».'),
+        source: chaine('URL exacte de la page où l’adresse est écrite, ou « Bas ».'),
       },
       ['id', 'email', 'source'],
     ),
@@ -289,17 +291,22 @@ const OUTILS: Outil[] = [
       const p = await prospect(env, texte(args, 'id'));
       const email = texte(args, 'email').toLowerCase();
       const source = texte(args, 'source');
-      if (!source) throw new ErreurOutil('Indique la source de l’adresse : l’URL de la page, ou « Bas ».');
+      const parBas = /^bas\b/i.test(source);
+      if (!/^https?:\/\//i.test(source) && !parBas) throw new ErreurOutil('Indique la source de l’adresse : l’URL exacte de la page où elle est écrite, ou « Bas ».');
       if (p.statut === 'desinscrit') throw new ErreurOutil('Cette fiche est désinscrite : son email ne change plus.');
       const maintenant = new Date().toISOString();
-      if (/^https?:\/\//i.test(source) && !(await prouvee(email, source, ''))) {
-        await enregistrer(env, p.id, { statut: 'a_verifier', raison: RAISONS.propose, email: '', email_statut: '', email_source: source, email_propose: email }, maintenant).run();
-        return { statut: 'a_verifier', message: `${email} n’apparaît pas sur ${source} : gardée comme proposition, Bas la vérifiera.` };
-      }
-      const r = appliquerEmail(email, p, source);
+      const r = parBas ? appliquerEmail(email, p, 'donné par Bas') : await selonPreuve(email, source, '', p);
       if (!r) throw new ErreurOutil(`« ${email} » n’est pas une adresse email utilisable.`);
       await enregistrer(env, p.id, r, maintenant).run();
-      return { statut: r.statut, statut_libelle: STATUTS[r.statut], email: r.email, email_type: NATURES[r.email_statut] ?? r.email_statut, raison: r.raison };
+      if (!r.email) return { statut: r.statut, message: `${email} n’apparaît pas sur ${source} : gardée comme proposition, Bas la vérifiera.` };
+      return {
+        statut: r.statut,
+        statut_libelle: STATUTS[r.statut],
+        email: r.email,
+        email_type: NATURES[r.email_statut] ?? r.email_statut,
+        verifiee: r.email_verifie !== false,
+        raison: r.raison,
+      };
     },
   },
   {

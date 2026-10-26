@@ -21,6 +21,7 @@ import {
   priorite,
   CLES_FILTRES,
   etiquetteRecente,
+  nonVerifiee,
 } from './prospects';
 import { statutSelonEmail } from '../scripts/base.mjs';
 
@@ -166,7 +167,7 @@ export async function pageTraiter(url: URL, env: Env) {
           ${p.constat ? `<div><span class="discret">J’ai remarqué que…</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
           ${avisDetaille(p)}
           <dl>
-            ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
+            ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> ${nonVerifiee(p)} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}
             ${ligne('Proposé par Claude', p.email_propose ? `<strong>${echapper(p.email_propose)}</strong> <span class="discret">· ${sourceLien(p.email_source)}</span>` : '')}
             ${p.site ? '' : ligne('Site', '<span class="discret">pas de site</span>')}
             ${ligne('Adresse', echapper(p.adresse))}
@@ -207,7 +208,7 @@ export async function actionEmail(env: Env, id: string, action: string, emailSai
     // Bas a vérifié l'adresse : une adresse sur un autre domaine devient celle de l'entreprise.
     const nature = p.email_statut === 'autre_domaine' ? 'entreprise' : p.email_statut;
     const { statut, raison } = statutSelonEmail(nature);
-    await env.DB.prepare('UPDATE prospects SET email_statut = ?, statut = ?, raison = ?, statut_le = ?, email_propose = ? WHERE id = ?')
+    await env.DB.prepare('UPDATE prospects SET email_statut = ?, statut = ?, raison = ?, statut_le = ?, email_propose = ?, email_verifie = 1 WHERE id = ?')
       .bind(nature, statut, raison, maintenant, '', id)
       .run();
     return `${p.email} gardé`;

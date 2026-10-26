@@ -9,7 +9,7 @@ import { CONSTAT_CREATION } from '../scripts/cibles.mjs';
 import { compte, etat, fiches } from './apify';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
-import { enrichirLot } from './enrichir';
+import { enrichirLot, reprendrePropositions } from './enrichir';
 import { nomLisible } from './html';
 import { piloter } from './pilote';
 
@@ -251,11 +251,13 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
       }
       const { avis, erreurClaude, ...analyse } = resultat;
       const { statut, raison, constat } = decider(analyse, avis);
+      // L'adresse déjà trouvée par Claude garde sa marque « non vérifiée » ; une adresse lue sur le site est vérifiée.
       return [
         env.DB.prepare(
-          `UPDATE prospects SET email = ?, email_statut = ?, constat_cle = ?, constat = ?, signaux = ?, statut = ?, raison = ?, statut_le = ?,
-            verdict = ?, qualite = ?, avis = ?
-            WHERE id = ? AND statut = 'a_analyser'`,
+          `UPDATE prospects SET email = ?1, email_statut = ?2, constat_cle = ?3, constat = ?4, signaux = ?5, statut = ?6, raison = ?7, statut_le = ?8,
+            verdict = ?9, qualite = ?10, avis = ?11,
+            email_verifie = CASE WHEN email = ?1 THEN email_verifie ELSE 1 END
+            WHERE id = ?12 AND statut = 'a_analyser'`,
         ).bind(
           analyse.email,
           analyse.statut,
@@ -312,6 +314,7 @@ export async function tache(env: Env) {
   }
   try {
     await enrichirLot(env, maintenant, (niveau, message) => noter(env, niveau, message));
+    await reprendrePropositions(env, maintenant);
   } catch (erreur) {
     await noter(env, 'erreur', `Recherche d’emails : ${String(erreur).slice(0, 300)}`).run();
   }

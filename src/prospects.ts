@@ -65,11 +65,15 @@ export type Prospect = {
   verdict: string;
   qualite: number | null;
   avis: string;
+  email_verifie: number;
 };
 
-export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string; origine: string };
+export type Filtres = { cible: string; statut: string; ville: string; categorie: string; raison: string; q: string; tri: string; origine: string; verif: string };
 
-export const CLES_FILTRES = ['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri', 'origine'] as const;
+export const CLES_FILTRES = ['cible', 'statut', 'ville', 'categorie', 'raison', 'q', 'tri', 'origine', 'verif'] as const;
+
+// Adresse lue par l'outil, ou seulement vue par Claude sur une page qu'on ne peut pas relire.
+export const VERIFICATIONS: Record<string, string> = { verifie: 'Adresses vérifiées', non_verifie: 'Adresses non vérifiées' };
 
 export const ORIGINES: Record<string, string> = { maps: 'Google Maps', sirene: 'Nouvelles entreprises', recent: 'Récentes' };
 
@@ -104,6 +108,7 @@ export function lireFiltres(url: URL): Filtres {
     tri: url.searchParams.get('tri') ?? '',
     q: url.searchParams.get('q') ?? '',
     origine: url.searchParams.get('origine') ?? '',
+    verif: url.searchParams.get('verif') ?? '',
   };
 }
 
@@ -129,6 +134,9 @@ export function clauses(filtres: Filtres, sansStatut = false) {
   if (filtres.raison && !sansStatut) {
     conditions.push('raison = ?');
     valeurs.push(filtres.raison);
+  }
+  if (filtres.verif in VERIFICATIONS) {
+    conditions.push(`email <> '' AND email_verifie = ${filtres.verif === 'verifie' ? 1 : 0}`);
   }
   if (filtres.origine === 'recent') {
     conditions.push(RECENTE);
@@ -208,13 +216,22 @@ export function motif(p: Pick<Prospect, 'statut' | 'raison' | 'constat'>) {
   return texte ? `<div class="serre" title="${echapper(texte)}">${echapper(texte)}</div>` : '';
 }
 
+// Adresse vue par Claude sur une page que l'outil ne peut pas relire : lien vers cette page.
+export function nonVerifiee(p: Pick<Prospect, 'email' | 'email_verifie' | 'email_source'>) {
+  if (!p.email || p.email_verifie !== 0) return '';
+  const titre = `Vue par Claude sur ${p.email_source}, page que l’outil ne peut pas relire`;
+  return /^https?:\/\//i.test(p.email_source)
+    ? `<a class="non-verifiee" href="${echapper(p.email_source)}" target="_blank" rel="noreferrer" title="${echapper(titre)}">non vérifiée</a>`
+    : `<span class="non-verifiee" title="${echapper(titre)}">non vérifiée</span>`;
+}
+
 // Colonne email : l'adresse, avec un bouton « Écrire » quand elle est nominative.
 export function contact(p: Prospect, cibles: Awaited<ReturnType<typeof chargerCibles>>) {
   const adresse = (email: string, classe = '') => `<span class="une-ligne ${classe}" title="${echapper(email)}">${echapper(email)}</span>`;
   if (p.statut === 'a_ecrire' && p.email) {
-    return `<div class="contact">${adresse(p.email)}<a class="btn contour mini" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 13)}Écrire</a></div>`;
+    return `<div class="contact">${adresse(p.email)}${nonVerifiee(p)}<a class="btn contour mini" href="${echapper(brouillon(cibles[p.cible], p))}" onclick="fetch('/p/${encodeURIComponent(p.id)}/ecrit', { method: 'POST', keepalive: true })">${icone('email', 13)}Écrire</a></div>`;
   }
-  if (p.email) return adresse(p.email);
+  if (p.email) return `${adresse(p.email)}${nonVerifiee(p)}`;
   if (p.email_propose) return adresse(`proposé : ${p.email_propose}`, 'discret');
   return '<span class="discret">aucun email</span>';
 }

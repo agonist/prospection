@@ -213,6 +213,10 @@ td.col-vu { font-size: 13px; white-space: nowrap; }
 .contact { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .contact .une-ligne { flex: 1; }
 .contact .btn { flex: none; }
+.non-verifiee { display: inline-block; font-size: 11.5px; font-weight: 500; color: var(--ambre); text-decoration: none; white-space: nowrap; }
+a.non-verifiee:hover { text-decoration: underline; }
+.contact .non-verifiee { flex: none; }
+.avec-icone + .non-verifiee { margin-left: 8px; }
 .lien-site { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--texte); font-size: 13px; }
 .lien-site span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lien-site .icone { color: var(--attenue-texte); }

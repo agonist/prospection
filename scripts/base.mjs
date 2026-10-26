@@ -13,7 +13,7 @@ export const RAISONS = {
   autreDomaine: 'adresse sur un autre domaine que le site : vérifier que ce n’est pas celle de son agence web',
   enrichir: 'pas d’email sur le site : Claude le cherche sur le web',
   introuvable: 'aucun email trouvé, ni sur le site ni sur le web',
-  propose: 'Claude propose une adresse sans avoir pu la retrouver dans la page citée : vérifie la source',
+  propose: 'Claude propose une adresse absente de la page citée : sans doute devinée, vérifie la source',
   ecrire: 'adresse nominative : écrire à la main, pas dans Smartlead (règle CNIL)',
   // Marque une fiche dont l'email est en train d'être cherché.
   enCours: 'Claude cherche l’email sur le web…',

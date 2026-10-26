@@ -26,11 +26,14 @@ Claude ne voit pas le rendu visuel, seulement le texte et la structure. Sans cl�
 
 ## Pas d'email sur le site
 
-On n'appelle pas : tout passe par email. Une fiche sans email sur son site part en **Email à chercher**. Avec une clé OpenRouter ou Anthropic, Claude cherche l'adresse sur le web (Pages Jaunes, Facebook, annuaires, mentions légales…), 3 fiches par passage de la tâche. Il doit citer la page où il l'a lue, et l'outil vérifie que l'adresse y figure vraiment :
+On n'appelle pas : tout passe par email. Une fiche sans email sur son site part en **Email à chercher**. Avec une clé OpenRouter ou Anthropic, Claude cherche l'adresse sur le web (Pages Jaunes, Facebook, annuaires, mentions légales…), 3 fiches par passage de la tâche. Il doit citer la page où il l'a lue, et l'outil relit cette page :
 
 - adresse retrouvée dans la page : la fiche est rangée comme à l'analyse (Prêt à contacter, ou À écrire si elle est nominative) ;
-- adresse que l'outil n'a pas pu retrouver dans la page : **À vérifier**, avec un bouton pour l'utiliser après avoir regardé la source ;
+- page que l'outil ne peut pas relire (Facebook, Instagram, Pages Jaunes et autres annuaires, page qui ne répond pas) : la fiche est rangée de la même façon, avec la mention **non vérifiée** et un lien vers la page. Dans la liste, le filtre « Adresses non vérifiées » les regroupe, pour les regarder ou les exporter dans une campagne à part ;
+- page lue où l'adresse n'apparaît pas, ou adresse sans page source : elle est sans doute devinée. Sans source, elle est jetée ; sinon la fiche va en **À vérifier**, avec un bouton pour l'utiliser après avoir regardé la source ;
 - rien trouvé : **Sans email**.
+
+La règle ne change pas : Claude n'a pas le droit d'inventer une adresse, ni de deviner un contact@ à partir du nom de domaine.
 
 Dans **Traiter** et sur chaque fiche, un bloc « Trouver l'email » donne des liens tout prêts (site, Google, Pages Jaunes, Facebook, fiche Google) et un champ pour coller l'adresse trouvée : la fiche se range toute seule. Le bouton « Chercher avec Claude » lance la recherche tout de suite. La recherche web coûte plus cher que le jugement d'un site (plusieurs pages lues par fiche) : surveiller la facture sur les premières dizaines.
 
@@ -127,7 +130,7 @@ Puis par exemple : « Où en est la prospection ? », « Prépare une cible pour
 
 Les garde-fous sont dans le serveur, pas seulement dans les consignes données à Claude :
 
-- un email ne s'enregistre qu'avec sa source : l'URL d'une page où l'adresse est écrite (l'outil va la lire ; sinon l'adresse reste une proposition « À vérifier »), ou « Bas » ;
+- un email ne s'enregistre qu'avec sa source : l'URL d'une page où l'adresse est écrite, relue comme ci-dessus (vérifiée, non vérifiée, ou proposition « À vérifier » si la page lue ne la contient pas), ou « Bas » ;
 - une adresse nominative va en « À écrire », jamais dans Smartlead ; l'export vers Smartlead reste un clic dans l'admin ;
 - une fiche désinscrite ne change plus de statut ;
 - le serveur ne répond qu'en local (`localhost`), et refuse les pages web d'autres sites.
