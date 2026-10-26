@@ -1,5 +1,7 @@
 // Lance et lit les extractions sur Apify : Google Maps (acteur compass/crawler-google-places)
 // et les entreprises tout juste créées du registre Sirene (acteur fit_melon/new-french-companies-finder-sirene).
+// Une extraction Google Maps faite par Hubertino se lit avec les mêmes fonctions.
+import { compteHubertino, estHubertino, etatHubertino, fichesHubertino } from './hubertino';
 
 const ACTEUR = 'compass~crawler-google-places';
 const ACTEUR_SIRENE = 'fit_melon~new-french-companies-finder-sirene';
@@ -57,11 +59,14 @@ export async function lancerSirene(env: Env, demande: { departements: string[]; 
 
 // READY, RUNNING, SUCCEEDED, FAILED, ABORTED, TIMED-OUT…
 export async function etat(env: Env, runId: string) {
+  if (estHubertino(runId)) return etatHubertino(env, runId);
   const { data } = await appeler<{ data: { status: string } }>(env, `/actor-runs/${runId}`);
   return data.data.status;
 }
 
-export async function fiches(env: Env, datasetId: string, decalage: number, nombre: number) {
+// `termes` : les recherches lancées, pour retrouver celle de chaque fiche Hubertino.
+export async function fiches(env: Env, datasetId: string, decalage: number, nombre: number, termes: string[] = []) {
+  if (estHubertino(datasetId)) return fichesHubertino(env, datasetId, decalage, nombre, termes);
   const { data, reponse } = await appeler<Record<string, unknown>[]>(
     env,
     `/datasets/${datasetId}/items?clean=true&format=json&offset=${decalage}&limit=${nombre}`,
@@ -71,6 +76,7 @@ export async function fiches(env: Env, datasetId: string, decalage: number, nomb
 
 // Nombre de fiches déjà trouvées, même pendant l'extraction.
 export async function compte(env: Env, datasetId: string) {
+  if (estHubertino(datasetId)) return compteHubertino(env, datasetId);
   const { data } = await appeler<{ data: { itemCount: number } }>(env, `/datasets/${datasetId}`);
   return data.data.itemCount ?? 0;
 }

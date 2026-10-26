@@ -10,10 +10,11 @@ const vars = join(racine, '.dev.vars');
 const PORT = 8787;
 
 if (!existsSync(vars)) writeFileSync(vars, readFileSync(join(racine, '.dev.vars.exemple')));
-const cle = readFileSync(vars, 'utf8').match(/^APIFY_TOKEN=(.*)$/m)?.[1]?.trim();
-if (!cle) {
-  console.error('Ajoute ta clé API Apify dans le fichier .dev.vars (ligne APIFY_TOKEN=…), puis relance `pnpm local`.');
-  console.error('Elle se trouve sur console.apify.com → Settings → API & Integrations.');
+const contenu = readFileSync(vars, 'utf8');
+const cle = (nom) => contenu.match(new RegExp(`^${nom}=(.*)$`, 'm'))?.[1]?.trim();
+if (!cle('APIFY_TOKEN') && !cle('HUBERTINO_API_KEY')) {
+  console.error('Ajoute ta clé API Apify (ligne APIFY_TOKEN=…) ou Hubertino (ligne HUBERTINO_API_KEY=…) dans le fichier .dev.vars, puis relance `pnpm local`.');
+  console.error('Apify : console.apify.com → Settings → API & Integrations. Hubertino : hubertino.com → Settings → API.');
   process.exit(1);
 }
 

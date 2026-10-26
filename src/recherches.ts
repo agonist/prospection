@@ -1,11 +1,12 @@
 import { claudeActif, depenseDuJour, modele } from './claude';
 import { type Cible, DEPARTEMENTS_DEFAUT, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
-import { lancerCreations, lancerGoogleMaps, parametresCreations, termesRecents } from './lancements';
+import { estHubertino, hubertinoActif } from './hubertino';
+import { lancerCreations, lancerGoogleMaps, pairesAFaire, parametresCreations, termesRecents } from './lancements';
 import { FICHES_PAR_RECHERCHE_PILOTE, lanceesAujourdhui, pilotees, reglerPilote } from './pilote';
 
 const ETATS: Record<string, string> = {
-  en_cours: 'Extraction Apify en cours',
+  en_cours: 'Extraction en cours',
   import: 'Import en cours',
   terminee: 'Terminée',
   echec: 'Échec',
@@ -13,6 +14,7 @@ const ETATS: Record<string, string> = {
 
 type Recherche = {
   id: number;
+  run_id: string;
   apify_statut: string;
   apify_fiches: number;
   cible: string;
@@ -33,10 +35,14 @@ function jour(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
+function fournisseur(r: Pick<Recherche, 'run_id'>) {
+  return estHubertino(r.run_id) ? 'Hubertino' : 'Apify';
+}
+
 function progression(r: Recherche) {
   if (r.statut === 'en_cours') {
     return r.apify_statut
-      ? `<span class="discret">Apify ${r.apify_statut === 'RUNNING' ? 'en cours' : r.apify_statut.toLowerCase()} · ${r.apify_fiches} fiches trouvées</span>`
+      ? `<span class="discret">${fournisseur(r)} ${r.apify_statut === 'RUNNING' ? 'en cours' : r.apify_statut.toLowerCase()} · ${r.apify_fiches} fiches trouvées</span>`
       : '<span class="discret">En attente du premier passage</span>';
   }
   if (!r.fiches) return '';
@@ -92,7 +98,8 @@ export async function pageRecherches(url: URL, env: Env) {
 
   const etat = (r: Recherche) => {
     const classe = { en_cours: 'a_analyser', import: 'a_analyser', terminee: 'nouveau', echec: 'desinscrit' }[r.statut] ?? '';
-    return `<span class="badge badge-${classe}">${echapper(ETATS[r.statut] ?? r.statut)}</span>`;
+    const libelle = r.statut === 'en_cours' ? `Extraction ${fournisseur(r)} en cours` : (ETATS[r.statut] ?? r.statut);
+    return `<span class="badge badge-${classe}">${echapper(libelle)}</span>`;
   };
   const lignes = (recherches.results as Recherche[])
     .map((r) => {
@@ -169,8 +176,12 @@ export async function pageRecherches(url: URL, env: Env) {
           }
           <div class="champ"><label for="max">Fiches maximum par recherche</label>
             <input id="max" type="number" name="max" value="${MAX_DEFAUT}" min="1" max="200" required></div>
-          <label class="case"><input type="checkbox" name="contacts" value="1">
-            <span><strong>Extraire aussi les emails avec Apify</strong>Option payante. Inutile en général : l’outil lit déjà les sites, et Claude cherche les emails manquants.</span></label>
+          ${
+            hubertinoActif(env)
+              ? '<p class="aide">Google Maps passe par Hubertino : l’email trouvé sur le site de chaque entreprise est compris dans le prix.</p>'
+              : `<label class="case"><input type="checkbox" name="contacts" value="1">
+            <span><strong>Extraire aussi les emails avec Apify</strong>Option payante. Inutile en général : l’outil lit déjà les sites, et Claude cherche les emails manquants.</span></label>`
+          }
           <label class="case"><input type="checkbox" name="forcer" value="1">
             <span><strong>Refaire les recherches déjà faites</strong>Par défaut, une recherche lancée il y a moins de 6 mois est sautée pour ne pas payer deux fois.</span></label>
           <div><button type="submit" class="btn">${icone('recherches')}Lancer la recherche</button></div>
@@ -237,22 +248,18 @@ export async function lancerRecherche(requete: Request, env: Env) {
   const max = Math.min(200, Math.max(1, Number(donnees.get('max')) || 30));
   if (!metiers.length || !communes.length) return new Response('Métiers et communes obligatoires', { status: 400 });
 
-  const demandes = [
-    ...new Map(communes.flatMap((commune) => metiers.map((metier) => [normaliserTerme(`${metier} ${commune}`), `${metier} ${commune}`] as const))).entries(),
-  ];
-  const faits = donnees.get('forcer') === '1' ? new Map<string, string>() : await termesRecents(env);
-  const termes = demandes.filter(([cle]) => !faits.has(cle)).map(([, terme]) => terme);
-  const sautes = demandes.length - termes.length;
-  if (!termes.length) {
+  const { demandees, aFaire: paires } = await pairesAFaire(env, metiers, communes, donnees.get('forcer') === '1');
+  const sautes = demandees - paires.length;
+  if (!paires.length) {
     return page(
       'Déjà fait',
       `<a class="retour" href="/recherches?cible=${encodeURIComponent(nomCible)}">${icone('retour')}Recherches</a>
-      <div class="alerte attention"><p>Ces ${demandes.length} recherches ont toutes été faites il y a moins de 6 mois, rien n’a été lancé. Ajoute d’autres communes, change de métier, ou coche « Refaire les recherches déjà faites ».</p></div>`,
+      <div class="alerte attention"><p>Ces ${demandees} recherches ont toutes été faites il y a moins de 6 mois, rien n’a été lancé. Ajoute d’autres communes, change de métier, ou coche « Refaire les recherches déjà faites ».</p></div>`,
       'recherches',
     );
   }
   try {
-    await lancerGoogleMaps(env, nomCible, termes, max, { contacts: donnees.get('contacts') === '1', sautes });
+    await lancerGoogleMaps(env, nomCible, paires, max, { contacts: donnees.get('contacts') === '1', sautes });
   } catch (erreur) {
     return page(
       'Erreur',
@@ -260,7 +267,7 @@ export async function lancerRecherche(requete: Request, env: Env) {
       'recherches',
     );
   }
-  return Response.redirect(new URL(`/recherches?message=${encodeURIComponent(`Recherche lancée : ${termes.length} recherches sur Google Maps`)}`, requete.url).toString(), 303);
+  return Response.redirect(new URL(`/recherches?message=${encodeURIComponent(`Recherche lancée : ${paires.length} recherches sur Google Maps`)}`, requete.url).toString(), 303);
 }
 
 async function lancerNouvelles(requete: Request, env: Env, cible: Cible, naf: string[], departements: string, donnees: FormData) {

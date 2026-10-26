@@ -4,11 +4,11 @@
 // JSON-RPC et reçoit sa réponse en JSON. Seulement en local (voir README).
 import { CONSTATS } from '../scripts/cibles.mjs';
 import { NAF } from '../scripts/naf.mjs';
-import { chargerCibles, codeNaf, normaliserTerme, sauverCible, termesCible, texteBrouillon } from './cibles';
+import { chargerCibles, codeNaf, sauverCible, termesCible, texteBrouillon } from './cibles';
 import { claudeActif, depenseDuJour } from './claude';
 import { appliquerEmail, enregistrer, selonPreuve } from './enrichir';
 import { nomLisible } from './html';
-import { lancerCreations, lancerGoogleMaps, parametresCreations, termesRecents } from './lancements';
+import { lancerCreations, lancerGoogleMaps, pairesAFaire, parametresCreations, termesRecents } from './lancements';
 import { lanceesAujourdhui, reglerPilote } from './pilote';
 import { NATURES, SCORE, STATUTS, type Prospect, changerStatut, clauses } from './prospects';
 import { actionEmail } from './traiter';
@@ -25,7 +25,7 @@ Règles à respecter :
 - Une adresse nominative (prenom.nom@…) ne part jamais dans Smartlead : la fiche va en « À écrire » et Bas écrit lui-même depuis Tuta. voir_prospect donne le brouillon.
 - L'export vers Smartlead reste un clic de Bas dans l'admin. Ne passe une fiche « en_campagne » que si Bas a vraiment écrit.
 - Une fiche « desinscrit » ne change plus de statut.
-- lancer_recherche et lancer_nouvelles_entreprises dépensent du crédit Apify ; chercher_email dépense du crédit Claude. Annonce ce que tu lances.
+- lancer_recherche dépense du crédit Hubertino ou Apify, lancer_nouvelles_entreprises du crédit Apify, chercher_email du crédit Claude. Annonce ce que tu lances.
 - Pas de téléphone : la prospection se fait uniquement par email.`;
 
 class ErreurOutil extends Error {}
@@ -408,7 +408,7 @@ const OUTILS: Outil[] = [
   {
     name: 'lancer_recherche',
     title: 'Lancer une recherche Google Maps',
-    description: `Lance une extraction Google Maps sur Apify pour une cible. Sans metiers ni communes, prend les recherches de la cible pas encore faites ces 6 derniers mois. Une recherche déjà faite il y a moins de 6 mois est sautée, sauf avec forcer. ${TERMES_PAR_APPEL} recherches au plus par appel. Dépense du crédit Apify ; la tâche importe et analyse les fiches ensuite.`,
+    description: `Lance une extraction Google Maps (sur Hubertino si sa clé est configurée, sinon sur Apify) pour une cible. Sans metiers ni communes, prend les recherches de la cible pas encore faites ces 6 derniers mois. Une recherche déjà faite il y a moins de 6 mois est sautée, sauf avec forcer. ${TERMES_PAR_APPEL} recherches au plus par appel. Dépense du crédit ; la tâche importe et analyse les fiches ensuite.`,
     inputSchema: schema(
       {
         cible: chaine('Clé de la cible.'),
@@ -416,7 +416,7 @@ const OUTILS: Outil[] = [
         communes: listeDe('Communes (sinon celles de la cible).'),
         nombre: entier(`Nombre de recherches « métier commune » à lancer (10 par défaut, ${TERMES_PAR_APPEL} au plus).`, 1, TERMES_PAR_APPEL),
         fiches_par_recherche: entier('Fiches Google Maps au plus par recherche (30 par défaut).', 1, 200),
-        emails: { type: 'boolean', description: 'Fait aussi extraire les emails des sites par Apify (plus cher).' },
+        emails: { type: 'boolean', description: 'Avec Apify seulement : fait aussi extraire les emails des sites (plus cher). Hubertino les donne toujours.' },
         forcer: { type: 'boolean', description: 'Refait les recherches déjà faites ces 6 derniers mois.' },
       },
       ['cible'],
@@ -426,15 +426,19 @@ const OUTILS: Outil[] = [
       const cible = await cibleConnue(env, texte(args, 'cible'));
       const metiers = liste(args, 'metiers') ?? cible.metiers;
       const communes = liste(args, 'communes') ?? cible.communes;
-      const demandes = [...new Map(communes.flatMap((commune) => metiers.map((metier) => [normaliserTerme(`${metier} ${commune}`), `${metier} ${commune}`] as const))).entries()];
-      if (!demandes.length) throw new ErreurOutil('Donne au moins un métier et une commune.');
-      const faits = args.forcer === true ? new Map<string, string>() : await termesRecents(env);
-      const aFaire = demandes.filter(([cle]) => !faits.has(cle)).map(([, terme]) => terme);
-      const termes = aFaire.slice(0, nombre(args, 'nombre', 10, 1, TERMES_PAR_APPEL));
-      if (!termes.length) throw new ErreurOutil(`Les ${demandes.length} recherches demandées ont toutes été faites il y a moins de 6 mois. Change de métiers ou de communes, ou passe forcer.`);
+      const { demandees, aFaire } = await pairesAFaire(env, metiers, communes, args.forcer === true);
+      if (!demandees) throw new ErreurOutil('Donne au moins un métier et une commune.');
+      const paires = aFaire.slice(0, nombre(args, 'nombre', 10, 1, TERMES_PAR_APPEL));
+      if (!paires.length) throw new ErreurOutil(`Les ${demandees} recherches demandées ont toutes été faites il y a moins de 6 mois. Change de métiers ou de communes, ou passe forcer.`);
       const max = nombre(args, 'fiches_par_recherche', 30, 1, 200);
-      const id = await lancerGoogleMaps(env, cible.cle, termes, max, { contacts: args.emails === true, sautes: demandes.length - aFaire.length });
-      return { recherche: id, lancees: termes, deja_faites: demandes.length - aFaire.length, restantes: aFaire.length - termes.length, fiches_par_recherche: max };
+      const id = await lancerGoogleMaps(env, cible.cle, paires, max, { contacts: args.emails === true, sautes: demandees - aFaire.length });
+      return {
+        recherche: id,
+        lancees: paires.map(({ metier, commune }) => `${metier} ${commune}`),
+        deja_faites: demandees - aFaire.length,
+        restantes: aFaire.length - paires.length,
+        fiches_par_recherche: max,
+      };
     },
   },
   {

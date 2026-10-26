@@ -16,6 +16,8 @@ interface __BaseEnv_Env {
 	OPENROUTER_API_KEY: string;
 	OPENROUTER_API: string;
 	INSEE_API_KEY: string;
+	HUBERTINO_API_KEY: string;
+	HUBERTINO_API: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
@@ -28,7 +30,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ACCESS_EQUIPE" | "ACCESS_AUD" | "IMPORT_PAR_PASSAGE" | "ANALYSES_PAR_PASSAGE" | "ACCESS_DESACTIVE" | "APIFY_TOKEN" | "APIFY_API" | "ANTHROPIC_API_KEY" | "CLAUDE_MODELE" | "ANTHROPIC_API" | "OPENROUTER_API_KEY" | "OPENROUTER_API" | "INSEE_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ACCESS_EQUIPE" | "ACCESS_AUD" | "IMPORT_PAR_PASSAGE" | "ANALYSES_PAR_PASSAGE" | "ACCESS_DESACTIVE" | "APIFY_TOKEN" | "APIFY_API" | "ANTHROPIC_API_KEY" | "CLAUDE_MODELE" | "ANTHROPIC_API" | "OPENROUTER_API_KEY" | "OPENROUTER_API" | "INSEE_API_KEY" | "HUBERTINO_API_KEY" | "HUBERTINO_API">> {}
 }
 declare module "*.txt" {
 	const value: string;

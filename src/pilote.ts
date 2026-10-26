@@ -4,7 +4,7 @@ import type { Cible } from './cibles';
 import { lancerCreations, lancerGoogleMaps, termesAFaire } from './lancements';
 
 export const FICHES_PAR_RECHERCHE_PILOTE = 30;
-// Recherches regroupées dans une même extraction Apify.
+// Recherches regroupées dans une même extraction.
 const PAR_LANCEMENT = 10;
 const JOUR_MS = 86_400_000;
 const HEURE_MS = 3_600_000;
@@ -41,7 +41,7 @@ async function creationsAFaire(env: Env, cible: Cible) {
 export async function piloter(env: Env, cibles: Record<string, Cible>, noter: (niveau: 'info' | 'erreur', message: string) => D1PreparedStatement) {
   const actives = pilotees(cibles);
   if (!actives.length) return false;
-  // Après une erreur, une heure de pause : pas de relance en boucle (crédit Apify épuisé, clé invalide…).
+  // Après une erreur, une heure de pause : pas de relance en boucle (crédit épuisé, clé invalide…).
   const [pause, derniere] = await env.DB.batch([
     env.DB.prepare("SELECT valeur FROM etat WHERE cle = 'pilote_pause'"),
     env.DB.prepare('SELECT statut, fini_le FROM recherches WHERE auto = 1 ORDER BY id DESC LIMIT 1'),

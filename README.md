@@ -64,7 +64,7 @@ pnpm install
 pnpm local
 ```
 
-Au premier lancement, `pnpm local` crée le fichier `.dev.vars` et demande la clé API Apify (sur [console.apify.com](https://console.apify.com), **Settings → API & Integrations**). Colle-la après `APIFY_TOKEN=`, puis relance `pnpm local`. L'admin s'ouvre sur http://localhost:8787, et la tâche tourne toutes les minutes tant que la commande reste ouverte. La base locale est gardée dans `.wrangler/` entre deux lancements.
+Au premier lancement, `pnpm local` crée le fichier `.dev.vars` et demande la clé API Apify (sur [console.apify.com](https://console.apify.com), **Settings → API & Integrations**) ou Hubertino (voir plus bas). Colle-la après `APIFY_TOKEN=` (ou `HUBERTINO_API_KEY=`), puis relance `pnpm local`. L'admin s'ouvre sur http://localhost:8787, et la tâche tourne toutes les minutes tant que la commande reste ouverte. La base locale est gardée dans `.wrangler/` entre deux lancements.
 
 Pour suivre ce qui se passe : le terminal affiche chaque étape (extraction Apify, import, résultat de l'analyse de chaque site), et la page **Recherches** de l'admin montre l'activité, l'heure du dernier passage de la tâche, la progression et les erreurs. Elle se rafraîchit toute seule tant qu'il reste du travail.
 
@@ -90,6 +90,12 @@ Sur le plan Workers gratuit, chaque passage de la tâche est limité à 10 ms de
 ## Lancer une recherche
 
 Dans l'admin, **Nouvelle recherche** : la cible préremplit ses métiers et les communes qui restent à faire ; chaque métier est cherché dans chaque commune. Une recherche « métier commune » lancée il y a moins de 6 mois est sautée pour ne pas payer deux fois l'extraction, sauf si on coche « Refaire les recherches déjà faites ». Chaque ligne devient une recherche Google Maps « métier commune », dont le texte est réutilisé tel quel dans l'email (colonne `recherche`). La page des recherches montre l'avancement.
+
+### Google Maps par Hubertino (facultatif)
+
+Avec une clé [Hubertino](https://hubertino.com/google-maps-scraper) dans `.dev.vars` (`HUBERTINO_API_KEY=…`, à prendre sur hubertino.com → Settings), les recherches Google Maps passent par Hubertino au lieu d'Apify : 1 crédit par fiche, email du site compris, soit environ 0,38 $ les 1 000 fiches avec l'abonnement Starter (19 $ par mois pour 50 000 fiches ; 100 crédits offerts à l'inscription). Sans cette clé, rien ne change. Les nouvelles entreprises (registre Sirene) passent toujours par Apify.
+
+Hubertino cherche chaque métier dans chaque commune : une recherche lancée sur une partie seulement des paires est complétée en tableau croisé, ce qui coûte quelques fiches de plus. Une commune est envoyée sous la forme « Barr, Alsace, France » ; pour une commune hors d'Alsace, l'écrire avec sa précision (« Nancy, France »).
 
 L'extraction Apify est payée au résultat, sur le crédit du compte Apify. Les avis et les photos sont désactivés. La case « Extraire les emails avec Apify » (cochée par défaut) active l'option payante qui récupère les emails des sites pendant l'extraction ; l'analyse repasse de toute façon sur chaque site pour le constat et pour les emails qu'Apify aurait manqués.
 

@@ -1,6 +1,10 @@
 ACCESS_DESACTIVE=1
 # Clé API Apify : Settings → API & Integrations sur console.apify.com
 APIFY_TOKEN=
+# Facultatif : clé Hubertino (hubertino.com → Settings). Si elle est là, les recherches Google Maps passent
+# par Hubertino (environ 0,40 $ les 1 000 fiches, email du site compris) au lieu d'Apify.
+# Les nouvelles entreprises (registre Sirene) passent toujours par Apify.
+HUBERTINO_API_KEY=
 # Clé INSEE facultative (gratuite sur portail-api.insee.fr) pour les nouvelles entreprises du registre Sirene.
 INSEE_API_KEY=
 # Clé API Anthropic, pour que Claude juge chaque site : console.anthropic.com → API Keys.

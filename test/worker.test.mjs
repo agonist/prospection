@@ -12,7 +12,13 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [] };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [], hubertino: [], etatHubertino: 0 };
+  // Hubertino : une fiche avec email, une fermée, une dont la visite du site a échoué.
+  const lignesHubertino = [
+    { _status: 'enriched', query: 'photographe Barr, Alsace, France', name: 'Studio Lumière', category: 'Photographe', phone: '03 88 00 00 01', email: 'contact@studio-lumiere.fr', website: null, address: '1 rue du Marché, 67140 Barr', city: 'Barr', rating: 4.8, reviews: 12, business_status: 'OPERATIONAL', location_link: 'https://www.google.com/maps/place/?q=place_id:ChIJ1', place_id: 'ChIJ1' },
+    { _status: 'enriched', query: 'studio photo Saint-Louis, Haut-Rhin', name: 'Photo Rhin', category: 'Studio photo', email: null, website: null, city: 'Saint-Louis', rating: null, reviews: null, business_status: 'CLOSED_PERMANENTLY', place_id: 'ChIJ2' },
+    { _status: 'failed', query: 'photographe Saint-Louis, Haut-Rhin', name: 'Atelier Image', category: 'Photographe', email: null, website: null, city: 'Saint-Louis', rating: 4.1, reviews: 3, business_status: 'OPERATIONAL', place_id: 'ChIJ3' },
+  ];
   // Registre Sirene : une entreprise créée il y a 10 jours, et un résultat vide.
   const creees = [
     { status: 'found', siret: '12345678900011', siren: '123456789', name: 'DOMAINE NOUVEAU EARL', creationDate: new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10), nafCode: '01.21Z', address: '3 RUE DES VIGNES', postalCode: '67140', city: 'BARR', department: '67' },
@@ -41,6 +47,26 @@ function demarrerFauxApify(fiches) {
         json({ data: { id: 'run2', defaultDatasetId: 'ds2' } });
       });
       return;
+    }
+    if (req.method === 'POST' && url.pathname === '/hubertino/scrapes') {
+      let corps = '';
+      req.on('data', (morceau) => (corps += morceau));
+      req.on('end', () => {
+        appels.hubertino.push({ auth: req.headers.authorization, entree: JSON.parse(corps) });
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ scrape: { id: 'h1', status: 'queued' } }));
+      });
+      return;
+    }
+    if (url.pathname === '/hubertino/scrapes/h1') {
+      appels.etatHubertino += 1;
+      return json({ scrape: { id: 'h1', status: appels.etatHubertino === 1 ? 'running' : 'done' } });
+    }
+    if (url.pathname === '/hubertino/scrapes/h1/results') {
+      const debut = Number(url.searchParams.get('offset'));
+      const limite = Number(url.searchParams.get('limit'));
+      const lignes = appels.etatHubertino <= 1 ? [] : lignesHubertino;
+      return json({ status: 'done', partial: false, count: lignes.length, updated: 1, coverage: null, columns: [], rows: lignes.slice(debut, debut + limite), offset: debut, limit: limite, hasMore: debut + limite < lignes.length });
     }
     if (url.pathname === '/v2/actor-runs/run2') return json({ data: { status: 'SUCCEEDED' } });
     if (url.pathname === '/v2/datasets/ds2') return json({ data: { itemCount: creees.length } });
@@ -532,7 +558,7 @@ test('Claude propose une cible, pilote l’outil par MCP, et le pilote automatiq
     assert.equal(faux.appels.sirene.length, 1);
     const journal = lire(await outil('journal'));
     assert.ok(journal.recherches.every((r) => r.auto && r.statut === 'terminee'));
-    assert.ok(journal.messages.some((m) => /lancée par le pilote automatique : 1 recherches/.test(m.message)));
+    assert.ok(journal.messages.some((m) => /lancée par le pilote automatique sur Apify : 1 recherches/.test(m.message)));
     const tableau = lire(await outil('tableau_de_bord'));
     assert.equal(tableau.tache.active, true);
     assert.deepEqual(tableau.cibles.find((c) => c.cle === 'photographes').pilote, { recherches_par_jour: 1, lancees_aujourdhui: 1, nouvelles_entreprises: true });
@@ -571,6 +597,74 @@ test('Claude propose une cible, pilote l’outil par MCP, et le pilote automatiq
     assert.equal(lancee.deja_faites, 1);
     assert.deepEqual(faux.appels.runs[1].entree.searchStringsArray, ['photographe Obernai']);
     assert.equal((await outil('lancer_recherche', { cible: 'photographes' })).isError, true);
+  } finally {
+    process.kill(-worker.pid);
+    faux.serveur.close();
+  }
+});
+
+test('avec une clé Hubertino, les recherches Google Maps passent par Hubertino', { timeout: 120_000 }, async () => {
+  const faux = await demarrerFauxApify([]);
+  const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
+  const vars = join(persistance, '.dev.vars');
+  writeFileSync(vars, `ACCESS_DESACTIVE=1\nHUBERTINO_API_KEY=hub_test\nHUBERTINO_API=http://127.0.0.1:${faux.port}/hubertino/\n`);
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  const port = PORT_WORKER + 3;
+  const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
+    cwd: racine,
+    stdio: 'ignore',
+    detached: true,
+  });
+  try {
+    const admin = `http://127.0.0.1:${port}`;
+    await attendre(admin);
+    const passage = () => fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Google Maps passe par Hubertino/);
+
+    const lancement = await fetch(`${admin}/recherches`, {
+      method: 'POST',
+      body: new URLSearchParams({ cible: 'vin', metiers: 'photographe\nstudio photo', communes: 'Barr\nSaint-Louis, Haut-Rhin', max: '20', contacts: '1' }),
+      redirect: 'manual',
+    });
+    assert.equal(lancement.status, 303);
+    assert.equal(faux.appels.runs.length, 0);
+    assert.equal(faux.appels.hubertino[0].auth, 'Bearer hub_test');
+    assert.deepEqual(faux.appels.hubertino[0].entree, {
+      categories: ['photographe', 'studio photo'],
+      locations: ['Barr, Alsace, France', 'Saint-Louis, Haut-Rhin'],
+      maxResults: 20,
+      country: 'fr',
+      enrichWebsite: true,
+      enrichLinks: true,
+    });
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Extraction Hubertino en cours/);
+
+    await passage(); // en cours
+    await passage(); // terminé : import
+    await passage(); // analyse
+    const suivi = await (await fetch(`${admin}/recherches`)).text();
+    assert.match(suivi, /extraction Hubertino en cours, 0 fiches trouvées/);
+    assert.match(suivi, /3 \/ 3 fiches importées/);
+    assert.match(suivi, /lancée sur Hubertino : 4 recherches, 20 fiches maximum chacune\./);
+
+    // La fiche garde la recherche « métier commune » lancée, et l'email du site trouvé par Hubertino.
+    const studio = await (await fetch(`${admin}/p/ChIJ1`)).text();
+    assert.match(studio, /<h1>Studio Lumière<\/h1>/);
+    assert.match(studio, /badge-nouveau/);
+    assert.match(studio, /contact@studio-lumiere\.fr/);
+    assert.match(studio, /<dt>Recherche<\/dt><dd>photographe Barr<\/dd>/);
+    assert.match(studio, /4,8 ★ · 12 avis/);
+    assert.match(await (await fetch(`${admin}/p/ChIJ2`)).text(), /badge-hors_cible/);
+    assert.match(await (await fetch(`${admin}/p/ChIJ3`)).text(), /<dt>Recherche<\/dt><dd>photographe Saint-Louis, Haut-Rhin<\/dd>/);
+
+    // Les 4 recherches croisées sont notées : relancer la même chose ne coûte rien.
+    const rejouee = await fetch(`${admin}/recherches`, {
+      method: 'POST',
+      body: new URLSearchParams({ cible: 'vin', metiers: 'studio photo', communes: 'Barr', max: '20' }),
+      redirect: 'manual',
+    });
+    assert.match(await rejouee.text(), /ont toutes été faites il y a moins de 6 mois/);
+    assert.equal(faux.appels.hubertino.length, 1);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();

@@ -1,4 +1,4 @@
-// Tâche planifiée, toutes les minutes : suit les recherches Apify, importe leurs
+// Tâche planifiée, toutes les minutes : suit les extractions (Apify, Hubertino), importe leurs
 // fiches par petits lots, puis analyse les sites des prospects importés.
 // Les lots restent petits pour tenir dans les limites d'une exécution de Worker
 // (50 requêtes D1 et 50 requêtes sortantes sur le plan gratuit).
@@ -7,6 +7,7 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { CONSTAT_CREATION } from '../scripts/cibles.mjs';
 import { compte, etat, fiches } from './apify';
+import { estHubertino } from './hubertino';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot, reprendrePropositions } from './enrichir';
@@ -29,6 +30,7 @@ type Recherche = {
   cible: string;
   run_id: string;
   dataset_id: string;
+  termes: string;
   statut: string;
   importees: number;
   apify_statut: string;
@@ -118,20 +120,21 @@ export function ligneImport(fiche: Record<string, unknown>, nomCible: string, ci
 
 // Renvoie true si la recherche a consommé ce passage (un lot importé).
 async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Cible>, maintenant: string): Promise<boolean> {
+  const fournisseur = estHubertino(recherche.run_id) ? 'Hubertino' : 'Apify';
   if (recherche.statut === 'en_cours') {
     const [statut, trouvees] = await Promise.all([etat(env, recherche.run_id), compte(env, recherche.dataset_id)]);
     const notes = [];
     if (statut !== recherche.apify_statut || trouvees !== recherche.apify_fiches) {
-      notes.push(noter(env, 'info', `Recherche n°${recherche.id} : extraction Apify ${ETATS_APIFY[statut] ?? statut}, ${trouvees} fiches trouvées.`, recherche.id));
+      notes.push(noter(env, 'info', `Recherche n°${recherche.id} : extraction ${fournisseur} ${ETATS_APIFY[statut] ?? statut}, ${trouvees} fiches trouvées.`, recherche.id));
     }
     if (ECHECS.includes(statut)) {
       await env.DB.batch([
         ...notes,
-        noter(env, 'erreur', `Recherche n°${recherche.id} : l’extraction Apify a échoué (${statut}). Voir console.apify.com → Runs.`, recherche.id),
+        noter(env, 'erreur', `Recherche n°${recherche.id} : l’extraction ${fournisseur} a échoué (${statut}). Voir ${fournisseur === 'Apify' ? 'console.apify.com → Runs' : 'hubertino.com → Scrapes'}.`, recherche.id),
         env.DB.prepare("UPDATE recherches SET statut = 'echec', apify_statut = ?, apify_fiches = ?, erreur = ?, fini_le = ? WHERE id = ?").bind(
           statut,
           trouvees,
-          `Apify : ${statut}`,
+          `${fournisseur} : ${statut}`,
           maintenant,
           recherche.id,
         ),
@@ -147,7 +150,7 @@ async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Ci
     if (statut !== 'SUCCEEDED') return false;
   }
 
-  const lot = await fiches(env, recherche.dataset_id, recherche.importees, taille(env.IMPORT_PAR_PASSAGE, IMPORT_PAR_PASSAGE));
+  const lot = await fiches(env, recherche.dataset_id, recherche.importees, taille(env.IMPORT_PAR_PASSAGE, IMPORT_PAR_PASSAGE), JSON.parse(recherche.termes || '[]'));
   const cible = cibles[recherche.cible];
   const lignes = lot.fiches
     .map((fiche) => (recherche.source === 'sirene' ? ficheSirene(fiche, cible) : fiche))
