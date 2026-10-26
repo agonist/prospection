@@ -98,13 +98,39 @@ Ces fiches n'ont ni email ni site : elles partent en « Email à chercher » et 
 
 Le filtre « Récentes » montre les entreprises créées dans l'année, et celles qui sont sur Google sans site avec 5 avis ou moins (sans doute récentes). Une étiquette les signale dans la liste.
 
-Rythme conseillé : une recherche Google Maps par cible et par mois, et une recherche des nouvelles entreprises chaque lundi sur les 7 derniers jours.
+## Pilote automatique
+
+En haut de **Recherches**, le pilote lance seul les recherches, cible par cible, tant que `pnpm local` tourne :
+
+- **Google Maps, recherches par jour** : il prend les recherches « métier commune » de la cible pas encore faites ces 6 derniers mois, 30 fiches au plus chacune, une extraction à la fois, sans dépasser le nombre choisi par jour. La colonne « Reste à chercher » dit combien il en reste et en combien de jours.
+- **Nouvelles entreprises chaque semaine** : une fois par semaine, il cherche les entreprises créées depuis la dernière recherche réussie, avec les codes NAF et les départements de la cible.
+
+L'import, l'analyse et la recherche d'email suivent comme pour une recherche lancée à la main. Après une erreur (crédit Apify épuisé, clé invalide…), le pilote attend une heure avant de réessayer et l'écrit dans l'activité. 0 et la case décochée l'arrêtent pour une cible.
 
 ## Les cibles
 
 La page **Cibles** liste les métiers prospectés, avec le nombre de prospects et les communes déjà couvertes. On y crée une nouvelle cible (restaurants, avocats…) et on modifie celles qui existent : métiers cherchés sur Google Maps, communes, mots qui excluent une fiche (coopérative, franchise…) et ordre des constats. `scripts/cibles.mjs` donne les valeurs de départ. Quand on y ajoute des métiers ou des communes et qu'on augmente `VERSION_CIBLES`, l'admin les ajoute aux cibles existantes au lancement suivant, sans rien retirer.
 
+Avec une clé Claude, **Nouveau secteur avec Claude** prépare une cible à partir d'un mot (« photographes ») : recherches Google Maps, codes NAF vérifiés dans la nomenclature de l'INSEE, mots à exclure, ce qu'un bon site doit avoir dans ce métier, constats et email écrit à la main. Rien n'est enregistré avant relecture. « Ce qu'un bon site doit avoir » est donné à Claude quand il juge les sites de la cible.
+
 La liste des prospects se filtre aussi par catégorie Google (« Producteur de vin », « Naturopathe »…).
+
+## Piloter avec Claude (MCP)
+
+L'outil est aussi un serveur MCP : depuis Claude Code, Claude lit le tableau de bord et les fiches, crée des cibles, lance des recherches, règle le pilote, range les fiches et enregistre les emails trouvés. Pendant que `pnpm local` tourne :
+
+```sh
+claude mcp add --transport http prospection http://localhost:8787/mcp
+```
+
+Puis par exemple : « Où en est la prospection ? », « Prépare une cible pour les photographes et active le pilote à 10 recherches par jour », « Trouve l'email des fiches à chercher de la cible vin ».
+
+Les garde-fous sont dans le serveur, pas seulement dans les consignes données à Claude :
+
+- un email ne s'enregistre qu'avec sa source : l'URL d'une page où l'adresse est écrite (l'outil va la lire ; sinon l'adresse reste une proposition « À vérifier »), ou « Bas » ;
+- une adresse nominative va en « À écrire », jamais dans Smartlead ; l'export vers Smartlead reste un clic dans l'admin ;
+- une fiche désinscrite ne change plus de statut ;
+- le serveur ne répond qu'en local (`localhost`), et refuse les pages web d'autres sites.
 
 ## Envoyer dans Smartlead
 

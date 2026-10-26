@@ -24,7 +24,8 @@ export function appliquerEmail(email: string, p: Pick<AEnrichir, 'site' | 'nom'>
   return { statut, raison, email: choix.email, email_statut: choix.statut, email_source: source, email_propose: '' };
 }
 
-async function prouvee(email: string, source: string, preuve: string) {
+// L'adresse figure dans la preuve citée, ou dans la page source elle-même.
+export async function prouvee(email: string, source: string, preuve: string) {
   if (preuve.toLowerCase().includes(email)) return true;
   if (!/^https?:\/\//.test(source)) return false;
   const page = await telecharger(source);

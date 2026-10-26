@@ -11,6 +11,7 @@ import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot } from './enrichir';
 import { nomLisible } from './html';
+import { piloter } from './pilote';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -221,6 +222,7 @@ async function analyserLot(env: Env, cibles: Record<string, Cible>, maintenant: 
               ville: p.ville,
               cible: cible?.nom ?? p.cible,
               metiers: cible?.metiers ?? [],
+              attentes: cible?.attentes,
               page: analyse.page,
               signaux: analyse.signaux,
             }).catch((erreur: unknown) => {
@@ -299,6 +301,9 @@ export async function tache(env: Env) {
         noter(env, 'erreur', `Recherche n°${recherche.id} : ${String(erreur).slice(0, 300)}`, recherche.id),
       ]);
     }
+  } else {
+    // Plus rien en cours : le pilote automatique lance la suite, s'il est activé.
+    await piloter(env, cibles, (niveau, message) => noter(env, niveau, message));
   }
   try {
     await analyserLot(env, cibles, maintenant);

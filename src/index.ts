@@ -1,5 +1,5 @@
 import { utilisateur } from './access';
-import { chargerCibles, enregistrerCible, optionsCibles, pageCibles } from './cibles';
+import { chargerCibles, enregistrerCible, optionsCibles, pageCibles, proposerCibleFormulaire } from './cibles';
 import {
   NATURES,
   PAR_PAGE,
@@ -32,11 +32,12 @@ import {
   GROUPES_STATUTS,
 } from './prospects';
 import { echapper, icone, nomLisible, page } from './html';
-import { lancerRecherche, pageRecherches } from './recherches';
+import { enregistrerPilote, lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
 import { tableau } from './tableau';
 import { actionEmail, pageTraiter, sourceLien, traiter, trouverEmail } from './traiter';
 import { claudeActif } from './claude';
+import { mcp } from './mcp';
 
 // Redirige après une action, avec un message affiché en bas de l'écran.
 function apres(requete: Request, chemin: string, message: string) {
@@ -399,6 +400,8 @@ export default {
     if (!(await utilisateur(requete, env))) return new Response('Accès refusé', { status: 403 });
 
     const url = new URL(requete.url);
+    // Serveur MCP pour Claude Code : il vérifie lui-même l'origine des requêtes.
+    if (url.pathname === '/mcp') return mcp(requete, env);
     if (requete.method === 'POST') {
       // Les formulaires ne sont acceptés que depuis l'admin elle-même.
       const origine = requete.headers.get('origin');
@@ -437,8 +440,10 @@ export default {
     if (url.pathname === '/prospects' && requete.method === 'GET') return liste(url, env);
     if (url.pathname === '/recherches' && requete.method === 'GET') return pageRecherches(url, env);
     if (url.pathname === '/recherches' && requete.method === 'POST') return lancerRecherche(requete, env);
+    if (url.pathname === '/pilote' && requete.method === 'POST') return enregistrerPilote(requete, env);
     if (url.pathname === '/cibles' && requete.method === 'GET') return pageCibles(url, env);
     if (url.pathname === '/cibles' && requete.method === 'POST') return enregistrerCible(requete, env);
+    if (url.pathname === '/cibles/proposer' && requete.method === 'POST') return proposerCibleFormulaire(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
     if (url.pathname === '/lot' && requete.method === 'POST') return lot(requete, env);
     if (url.pathname === '/traiter' && requete.method === 'GET') return pageTraiter(url, env);

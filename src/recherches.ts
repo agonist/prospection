@@ -1,7 +1,8 @@
-import { lancer, lancerSirene } from './apify';
 import { claudeActif, depenseDuJour, modele } from './claude';
-import { DELAI_TERMES_MS, barre, chargerCibles, codeNaf, normaliserTerme, optionsCibles, termesCible } from './cibles';
+import { type Cible, DEPARTEMENTS_DEFAUT, barre, chargerCibles, normaliserTerme, optionsCibles, termesCible } from './cibles';
 import { echapper, icone, page } from './html';
+import { lancerCreations, lancerGoogleMaps, parametresCreations, termesRecents } from './lancements';
+import { FICHES_PAR_RECHERCHE_PILOTE, lanceesAujourdhui, pilotees, reglerPilote } from './pilote';
 
 const ETATS: Record<string, string> = {
   en_cours: 'Extraction Apify en cours',
@@ -30,14 +31,6 @@ function dollars(montant: number) {
 
 function jour(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-}
-
-// Les recherches « métier commune » lancées ces 6 derniers mois, avec leur date.
-async function termesRecents(env: Env) {
-  const { results } = await env.DB.prepare('SELECT terme, lance_le FROM termes WHERE lance_le > ?')
-    .bind(new Date(Date.now() - DELAI_TERMES_MS).toISOString())
-    .all<{ terme: string; lance_le: string }>();
-  return new Map(results.map(({ terme, lance_le }) => [terme, lance_le]));
 }
 
 function progression(r: Recherche) {
@@ -119,11 +112,37 @@ export async function pageRecherches(url: URL, env: Env) {
     .map((j) => `<li class="journal-${echapper(j.niveau)}"><time>${new Date(j.le).toLocaleTimeString('fr-FR')}</time><span>${echapper(j.message)}</span></li>`)
     .join('');
 
+  const faitesAujourdhui = await lanceesAujourdhui(env);
+  const actives = pilotees(cibles);
+  const lignesPilote = Object.values(cibles)
+    .map((c) => {
+      const reste = termesCible(c).filter(({ terme }) => !faits.has(terme)).length;
+      const parJour = c.pilote ?? 0;
+      return `<tr>
+        <td class="nom">${echapper(c.nom)}</td>
+        <td><input type="number" class="court" name="pilote_${echapper(c.cle)}" value="${parJour}" min="0" max="200" aria-label="Recherches Google Maps par jour pour ${echapper(c.nom)}"></td>
+        <td>${
+          c.naf.length
+            ? `<label class="case"><input type="checkbox" name="sirene_${echapper(c.cle)}" value="1" ${c.piloteSirene ? 'checked' : ''}><span>${echapper(c.naf.map((ligne) => ligne.split(/\s+/)[0]).join(', '))} · ${echapper((c.departements ?? []).join(', '))}</span></label>`
+            : `<span class="discret">Pas de code NAF (<a href="/cibles?cle=${encodeURIComponent(c.cle)}">en ajouter</a>)</span>`
+        }</td>
+        <td class="chiffre">${parJour ? `${faitesAujourdhui[c.cle] ?? 0} / ${parJour}` : '<span class="discret">–</span>'}</td>
+        <td>${reste ? `${reste} recherche${reste > 1 ? 's' : ''}${parJour ? `<div class="discret">environ ${Math.ceil(reste / parJour)} jour${Math.ceil(reste / parJour) > 1 ? 's' : ''}</div>` : ''}` : '<span class="discret">tout est fait</span>'}</td>
+      </tr>`;
+    })
+    .join('');
+
   return page(
     'Recherches',
     `<header class="page-entete">
       <div><h1>Recherches</h1><p>Lance une extraction Google Maps ou cherche les entreprises tout juste créées, et suis l’avancement.</p></div>
     </header>
+    <form method="post" action="/pilote" class="carte bloc">
+      <div class="carte-entete"><div><h2 class="carte-titre">${icone('jouer')}Pilote automatique <span class="badge ${actives.length ? 'badge-nouveau' : ''}">${actives.length ? `Actif sur ${actives.length} cible${actives.length > 1 ? 's' : ''}` : 'Arrêté'}</span></h2>
+        <p class="carte-description">Il lance seul les recherches pas encore faites, une extraction à la fois, ${FICHES_PAR_RECHERCHE_PILOTE} fiches au plus par recherche, puis l’analyse et la recherche d’email suivent. Il tourne tant que la tâche tourne.</p></div>
+        <button type="submit" class="btn petit">Enregistrer</button></div>
+      <div class="tableau" style="margin-top: 12px"><table><thead><tr><th>Cible</th><th>Google Maps, recherches par jour</th><th>Nouvelles entreprises chaque semaine</th><th class="chiffre">Aujourd’hui</th><th>Reste à chercher</th></tr></thead><tbody>${lignesPilote}</tbody></table></div>
+    </form>
     <div class="grille deux-colonnes">
       <form method="post" action="/recherches" class="carte">
         <div class="carte-entete"><div><h2 class="carte-titre">Nouvelle recherche</h2><p class="carte-description">Chaque métier est cherché dans chaque commune sur Google Maps.</p></div></div>
@@ -182,7 +201,7 @@ export async function pageRecherches(url: URL, env: Env) {
             <textarea id="naf" name="naf" rows="6" required>${echapper((cible?.naf ?? []).join('\n'))}</textarea>
             <span class="aide">Code puis libellé, un par ligne (<a href="/cibles?cle=${encodeURIComponent(nomCible)}">modifier la cible</a>).</span></div>
           <div class="grille">
-            <div class="champ"><label for="departements">Départements</label><input id="departements" type="text" name="departements" value="67, 68" required></div>
+            <div class="champ"><label for="departements">Départements</label><input id="departements" type="text" name="departements" value="${echapper((cible?.departements?.length ? cible.departements : DEPARTEMENTS_DEFAUT).join(', '))}" required></div>
             <div class="champ"><label for="jours">Créées ces derniers jours</label><input id="jours" type="number" name="jours" value="30" min="1" max="365" required></div>
             <div class="champ"><label for="max-sirene">Entreprises maximum</label><input id="max-sirene" type="number" name="max" value="300" min="1" max="2000" required></div>
           </div>
@@ -212,7 +231,7 @@ export async function lancerRecherche(requete: Request, env: Env) {
       .split('\n')
       .map((ligne) => ligne.trim())
       .filter(Boolean);
-  if (donnees.get('source') === 'sirene') return lancerNouvelles(requete, env, nomCible, lignes('naf'), String(donnees.get('departements') ?? ''), donnees);
+  if (donnees.get('source') === 'sirene') return lancerNouvelles(requete, env, cibles[nomCible], lignes('naf'), String(donnees.get('departements') ?? ''), donnees);
   const metiers = lignes('metiers');
   const communes = lignes('communes');
   const max = Math.min(200, Math.max(1, Number(donnees.get('max')) || 30));
@@ -233,24 +252,7 @@ export async function lancerRecherche(requete: Request, env: Env) {
     );
   }
   try {
-    const contacts = donnees.get('contacts') === '1';
-    const { runId, datasetId } = await lancer(env, termes, max, contacts);
-    const maintenant = new Date().toISOString();
-    const { meta } = await env.DB.prepare('INSERT INTO recherches (cible, termes, run_id, dataset_id, cree_le) VALUES (?, ?, ?, ?, ?)')
-      .bind(nomCible, JSON.stringify(termes), runId, datasetId, maintenant)
-      .run();
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)').bind(
-        maintenant,
-        'info',
-        `Recherche n°${meta.last_row_id} lancée sur Apify : ${termes.length} recherches, ${max} fiches maximum chacune${contacts ? ', avec extraction des emails' : ''}${sautes ? `. ${sautes} déjà faites il y a moins de 6 mois, sautées` : ''}.`,
-        meta.last_row_id,
-      ),
-      env.DB.prepare(
-        `INSERT INTO termes (terme, cible, recherche_id, lance_le) SELECT value, ?, ?, ? FROM json_each(?) WHERE true
-          ON CONFLICT (terme) DO UPDATE SET cible = excluded.cible, recherche_id = excluded.recherche_id, lance_le = excluded.lance_le`,
-      ).bind(nomCible, meta.last_row_id, maintenant, JSON.stringify(termes.map(normaliserTerme))),
-    ]);
+    await lancerGoogleMaps(env, nomCible, termes, max, { contacts: donnees.get('contacts') === '1', sautes });
   } catch (erreur) {
     return page(
       'Erreur',
@@ -261,21 +263,14 @@ export async function lancerRecherche(requete: Request, env: Env) {
   return Response.redirect(new URL(`/recherches?message=${encodeURIComponent(`Recherche lancée : ${termes.length} recherches sur Google Maps`)}`, requete.url).toString(), 303);
 }
 
-async function lancerNouvelles(requete: Request, env: Env, nomCible: string, naf: string[], departements: string, donnees: FormData) {
-  const codes = [...new Set(naf.map(codeNaf).filter((code) => /^\d{2}\.\d{2}[A-Z]$/.test(code)))];
-  const depts = [...new Set(departements.split(/[\s,;]+/).map((d) => d.trim().toUpperCase()).filter(Boolean))];
+async function lancerNouvelles(requete: Request, env: Env, cible: Cible, naf: string[], departements: string, donnees: FormData) {
+  const nomCible = cible.cle;
+  const { codes, depts } = parametresCreations(naf, departements);
   const jours = Math.min(365, Math.max(1, Number(donnees.get('jours')) || 30));
   const max = Math.min(2000, Math.max(1, Number(donnees.get('max')) || 300));
   if (!codes.length || !depts.length) return new Response('Codes NAF (ex. 01.21Z) et départements obligatoires', { status: 400 });
   try {
-    const { runId, datasetId } = await lancerSirene(env, { departements: depts, naf: codes, jours, max });
-    const maintenant = new Date().toISOString();
-    const { meta } = await env.DB.prepare("INSERT INTO recherches (cible, termes, run_id, dataset_id, cree_le, source) VALUES (?, ?, ?, ?, ?, 'sirene')")
-      .bind(nomCible, JSON.stringify([...codes, `${jours} jours`, depts.join(', ')]), runId, datasetId, maintenant)
-      .run();
-    await env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, ?)')
-      .bind(maintenant, 'info', `Recherche n°${meta.last_row_id} lancée sur Apify : entreprises créées ces ${jours} derniers jours (${codes.join(', ')}) dans le ${depts.join(', ')}.`, meta.last_row_id)
-      .run();
+    await lancerCreations(env, cible, { codes, depts, jours, max });
   } catch (erreur) {
     return page(
       'Erreur',
@@ -284,4 +279,17 @@ async function lancerNouvelles(requete: Request, env: Env, nomCible: string, naf
     );
   }
   return Response.redirect(new URL(`/recherches?cible=${encodeURIComponent(nomCible)}&message=${encodeURIComponent('Recherche des nouvelles entreprises lancée')}`, requete.url).toString(), 303);
+}
+
+export async function enregistrerPilote(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const cibles = await chargerCibles(env);
+  await env.DB.batch(
+    Object.keys(cibles).map((cle) => reglerPilote(env, cle, { pilote: Number(donnees.get(`pilote_${cle}`)) || 0, piloteSirene: donnees.get(`sirene_${cle}`) === '1' })),
+  );
+  const actives = pilotees(await chargerCibles(env));
+  return Response.redirect(
+    new URL(`/recherches?message=${encodeURIComponent(actives.length ? `Pilote automatique actif sur ${actives.length} cible${actives.length > 1 ? 's' : ''}` : 'Pilote automatique arrêté')}`, requete.url).toString(),
+    303,
+  );
 }

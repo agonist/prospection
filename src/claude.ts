@@ -1,7 +1,8 @@
 // Claude lit la page d'accueil de chaque prospect et juge si son site est déjà
 // bon, puis écrit le constat de l'email 1 à partir de ce qu'il voit vraiment.
 import Anthropic from '@anthropic-ai/sdk';
-import { CONSTATS } from '../scripts/cibles.mjs';
+import { CONSTATS, MODELE_EMAIL } from '../scripts/cibles.mjs';
+import { NAF } from '../scripts/naf.mjs';
 
 // Haiku suffit pour trier des sites et chercher une adresse, pour beaucoup moins cher qu'Opus.
 export const MODELE_PAR_DEFAUT = 'claude-haiku-5-5';
@@ -79,6 +80,7 @@ type Demande = {
   ville: string;
   cible: string;
   metiers: string[];
+  attentes?: string;
   page: Page;
   signaux: Record<string, unknown>;
 };
@@ -122,7 +124,7 @@ function message(d: Demande) {
   return `Entreprise : ${d.nom}
 Catégorie Google : ${d.categorie || 'inconnue'}
 Commune : ${d.ville || 'inconnue'}
-Cible : ${d.cible} (métiers : ${d.metiers.join(', ')})
+Cible : ${d.cible} (métiers : ${d.metiers.join(', ')})${d.attentes ? `\nCe qu'un bon site doit avoir dans ce métier : ${d.attentes}` : ''}
 
 Page : ${d.page.url}
 Titre : ${d.page.titre || '(aucun)'}
@@ -164,41 +166,104 @@ function lireAvis(texte: string): Avis {
   return avis;
 }
 
-async function jugerOpenRouter(env: Env, demande: Demande): Promise<Avis | null> {
-  const reponse = await appelerOpenRouter(env, {
-    max_tokens: 2000,
-    messages: [
-      { role: 'system', content: SYSTEME },
-      { role: 'user', content: message(demande) },
-    ],
-    response_format: { type: 'json_schema', json_schema: { name: 'avis', strict: true, schema: SCHEMA } },
-    // Tâche de tri : peu de réflexion suffit.
-    reasoning: { effort: 'low' },
-  });
-  return reponse ? lireAvis(String(reponse.content)) : null;
-}
-
-export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
-  if (openrouter(env)) return jugerOpenRouter(env, demande);
+// Une demande à réponse JSON (schéma strict), par OpenRouter ou par l'API Anthropic. Rend le texte de la réponse.
+async function demanderJson(env: Env, systeme: string, contenu: string, nom: string, schema: Record<string, unknown>, maxJetons = 2000) {
+  if (openrouter(env)) {
+    const reponse = await appelerOpenRouter(env, {
+      max_tokens: maxJetons,
+      messages: [
+        { role: 'system', content: systeme },
+        { role: 'user', content: contenu },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: nom, strict: true, schema } },
+      // Tâches de tri et de rédaction courte : peu de réflexion suffit.
+      reasoning: { effort: 'low' },
+    });
+    return reponse ? String(reponse.content) : null;
+  }
   const client = new Anthropic({
     apiKey: env.ANTHROPIC_API_KEY,
     ...(env.ANTHROPIC_API ? { baseURL: String(env.ANTHROPIC_API) } : {}),
   });
   const reponse = await client.beta.messages.create({
     model: modele(env),
-    max_tokens: 2000,
-    system: SYSTEME,
-    messages: [{ role: 'user', content: message(demande) }],
-    // Tâche de tri : peu de réflexion suffit.
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+    max_tokens: maxJetons,
+    system: systeme,
+    messages: [{ role: 'user', content: contenu }],
+    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
     // Si le modèle refuse (filtre de sécurité), l'API relance la demande sur un autre modèle.
     ...secours(env),
   });
   await compter(env, coutAnthropic(env, reponse.usage));
   if (reponse.stop_reason === 'refusal') return null;
   const texte = reponse.content.find((bloc) => bloc.type === 'text');
-  if (!texte || texte.type !== 'text') return null;
-  return lireAvis(texte.text);
+  return texte && texte.type === 'text' ? texte.text : null;
+}
+
+export async function juger(env: Env, demande: Demande): Promise<Avis | null> {
+  const texte = await demanderJson(env, SYSTEME, message(demande), 'avis', SCHEMA);
+  return texte ? lireAvis(texte) : null;
+}
+
+// Nouvelle cible : à partir d'un secteur (« photographes »), Claude propose les
+// recherches Google Maps, les codes NAF, les exclusions, ce qu'un bon site doit
+// avoir et le modèle d'email. Rien n'est enregistré avant relecture.
+
+export type Proposition = { nom: string; metiers: string[]; naf: string[]; exclure: string[]; attentes: string; constats: string[]; modele: string };
+
+const SCHEMA_CIBLE = {
+  type: 'object',
+  properties: {
+    nom: { type: 'string' },
+    metiers: { type: 'array', items: { type: 'string' } },
+    naf: { type: 'array', items: { type: 'string' } },
+    exclure: { type: 'array', items: { type: 'string' } },
+    attentes: { type: 'string' },
+    constats: { type: 'array', items: { type: 'string', enum: Object.keys(CONSTATS) } },
+    modele: { type: 'string' },
+  },
+  required: ['nom', 'metiers', 'naf', 'exclure', 'attentes', 'constats', 'modele'],
+  additionalProperties: false,
+};
+
+const SYSTEME_CIBLE = `Tu aides C'est bien beau, un studio web alsacien d'une personne qui fait des sites pour les petites entreprises indépendantes d'Alsace, à préparer une nouvelle cible de prospection : un métier dont les entreprises ont souvent un site absent, daté ou incomplet.
+
+Rends :
+- nom : le nom de la cible, court, au pluriel (« Photographes », « Restaurants »).
+- metiers : 3 à 8 recherches à taper dans Google Maps devant le nom d'une commune (« photographe », « photographe de mariage »), en minuscules, au singulier, sans la commune. Les variantes que les clients tapent vraiment, sans recherche trop large.
+- naf : les codes NAF des entreprises de ce métier, du plus au moins pertinent (1 à 6), pris uniquement dans la liste fournie. Rends le code seul (« 74.20Z »).
+- exclure : 3 à 10 mots en minuscules qui, dans le nom ou la catégorie Google d'une fiche, signalent une chaîne, une franchise, une enseigne nationale ou une autre activité à écarter.
+- attentes : ce qu'un bon site doit avoir dans ce métier pour ses clients, en une ou deux phrases (prise de rendez-vous, carte et prix, photos de réalisations…). Elles serviront à juger les sites de ce métier.
+- constats : les constats à tester sur leurs sites, du plus important au moins important, pris dans la liste fournie.
+- modele : l'email écrit à la main pour les adresses nominatives, adapté au métier, sur le modèle fourni : première ligne l'objet, puis le corps, au vouvoiement, court et concret, signé « Bas ». Garde {{nom}}, {{recherche}}, {{constat}} et {{ville}}.`;
+
+export async function proposerCible(env: Env, secteur: string): Promise<Proposition | null> {
+  const constats = Object.entries(CONSTATS)
+    .map(([cle, phrase]) => `- ${cle} : « ${phrase.replace('{annee}', '2018')} »`)
+    .join('\n');
+  const codes = Object.entries(NAF)
+    .map(([code, libelle]) => `${code} ${libelle}`)
+    .join('\n');
+  const contenu = `Secteur : ${secteur}\n\nConstats disponibles :\n${constats}\n\nModèle d'email actuel :\n${MODELE_EMAIL}\n\nCodes NAF :\n${codes}`;
+  const texte = await demanderJson(env, SYSTEME_CIBLE, contenu, 'cible', SCHEMA_CIBLE, 3000);
+  if (!texte) return null;
+  const debut = texte.indexOf('{');
+  const fin = texte.lastIndexOf('}');
+  const brut = JSON.parse(debut >= 0 && fin > debut ? texte.slice(debut, fin + 1) : texte) as Partial<Proposition>;
+  const liste = (valeur: unknown) => (Array.isArray(valeur) ? [...new Set(valeur.map((v) => String(v).trim()).filter(Boolean))] : []);
+  return {
+    nom: String(brut.nom ?? secteur).trim(),
+    metiers: liste(brut.metiers).map((metier) => metier.toLowerCase()),
+    // Seuls les codes de la nomenclature sont gardés, avec leur libellé officiel.
+    naf: liste(brut.naf)
+      .map((code) => code.split(/\s+/)[0].toUpperCase())
+      .filter((code): code is keyof typeof NAF => code in NAF)
+      .map((code) => `${code} ${NAF[code]}`),
+    exclure: liste(brut.exclure).map((mot) => mot.toLowerCase()),
+    attentes: String(brut.attentes ?? '').trim(),
+    constats: liste(brut.constats).filter((cle) => cle in CONSTATS),
+    modele: String(brut.modele ?? '').trim(),
+  };
 }
 
 // Recherche d'email : Claude cherche sur le web l'adresse de contact d'une

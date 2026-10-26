@@ -48,10 +48,10 @@ Bas`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 3;
+export const VERSION_CIBLES = 4;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
-const VILLES = [
+export const VILLES = [
   'Wissembourg', 'Haguenau', 'Bischwiller', 'Brumath', 'Saverne', 'Schiltigheim', 'Bischheim', 'Hoenheim', 'Strasbourg',
   'Lingolsheim', 'Ostwald', 'Illkirch-Graffenstaden', 'Geispolsheim', 'Molsheim', 'Obernai', 'Erstein', 'Benfeld', 'Sélestat',
   'Ribeauvillé', 'Colmar', 'Wintzenheim', 'Ensisheim', 'Guebwiller', 'Soultz-Haut-Rhin', 'Cernay', 'Thann', 'Wittenheim',
@@ -76,6 +76,8 @@ export const CIBLES = {
       'Bergholtz', 'Wuenheim', 'Cernay',
     ],
     exclure: [/coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i],
+    // Ce qu'un bon site doit avoir dans ce métier : Claude s'en sert pour juger les sites.
+    attentes: 'Une boutique en ligne ou au moins la liste des vins avec leurs prix, la réservation d’une dégustation ou d’une visite, les horaires du caveau, une version en allemand pour les touristes, de vraies photos du domaine.',
     constats: [
       'pasDeSite',
       'reseauSocial',
@@ -93,6 +95,7 @@ export const CIBLES = {
     metiers: ['naturopathe', 'sophrologue', 'ostéopathe', 'kinésiologue', 'réflexologue', 'hypnothérapeute', 'masseur bien-être'],
     communes: VILLES,
     exclure: [/\bspa\b/i, /institut de beaut[ée]/i, /\bh[ôo]pital\b/i, /\bclinique\b/i],
+    attentes: 'La prise de rendez-vous en ligne, les tarifs des séances, la présentation de la praticienne ou du praticien et de sa formation, le déroulé d’une séance, l’adresse et l’accès.',
     constats: [
       'pasDeSite',
       'reseauSocial',
@@ -119,6 +122,7 @@ export const CIBLES = {
     metiers: ['menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon'],
     communes: VILLES,
     exclure: [/leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i],
+    attentes: 'Des photos de chantiers réalisés, une demande de devis en ligne, la zone d’intervention, les certifications (RGE, Qualibat…), les avis clients, un numéro et un email visibles.',
     constats: [
       'pasDeSite',
       'reseauSocial',

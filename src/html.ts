@@ -260,6 +260,8 @@ h1 + .etiquette-recente { margin: 6px 0 0; }
 .alerte.attention { border-color: color-mix(in srgb, var(--attention) 35%, var(--bord)); background: color-mix(in srgb, var(--attention) 6%, var(--carte)); }
 .alerte.succes { border-color: color-mix(in srgb, var(--succes) 35%, var(--bord)); background: color-mix(in srgb, var(--succes) 6%, var(--carte)); }
 .alerte.succes p strong { color: var(--succes); }
+.proposer-cible input[type=text] { flex: 1 1 220px; width: auto; max-width: 320px; }
+.proposer-cible .btn { flex: none; }
 .erreur { color: var(--danger); }
 .consigne { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: var(--rayon); background: var(--attenue); font-size: 13px; }
 .consigne .icone { margin-top: 3px; color: var(--attenue-texte); }

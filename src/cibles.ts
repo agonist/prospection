@@ -1,7 +1,8 @@
 // Les cibles (métier, communes, exclusions, ordre des constats) sont gardées en
 // base pour être modifiables dans l'admin. scripts/cibles.mjs donne les valeurs
 // de départ, insérées au premier chargement.
-import { CIBLES, CONSTATS, MODELE_CREATION, MODELE_EMAIL, VERSION_CIBLES } from '../scripts/cibles.mjs';
+import { CIBLES, CONSTATS, MODELE_CREATION, MODELE_EMAIL, VERSION_CIBLES, VILLES } from '../scripts/cibles.mjs';
+import { claudeActif, proposerCible, type Proposition } from './claude';
 import { echapper, icone, nomLisible, page } from './html';
 
 export type Cible = {
@@ -14,9 +15,30 @@ export type Cible = {
   modele?: string;
   // Codes NAF pour les nouvelles entreprises, « 01.21Z Culture de la vigne ».
   naf: string[];
+  // Ce qu'un bon site doit avoir dans ce métier, lu par Claude quand il juge un site.
+  attentes?: string;
+  // Pilote automatique : recherches Google Maps par jour, nouvelles entreprises chaque semaine.
+  pilote?: number;
+  piloteSirene?: boolean;
+  departements?: string[];
 };
 
-type Ligne = { cle: string; nom: string; metiers: string; communes: string; exclure: string; constats: string; modele: string; naf: string };
+type Ligne = {
+  cle: string;
+  nom: string;
+  metiers: string;
+  communes: string;
+  exclure: string;
+  constats: string;
+  modele: string;
+  naf: string;
+  attentes: string;
+  pilote: number;
+  pilote_sirene: number;
+  departements: string;
+};
+
+export const DEPARTEMENTS_DEFAUT = ['67', '68'];
 
 // Une recherche déjà faite depuis moins de 6 mois n'est pas relancée.
 export const DELAI_TERMES_MS = 183 * 24 * 60 * 60 * 1000;
@@ -35,14 +57,20 @@ function versCible(ligne: Ligne): Cible {
     constats: JSON.parse(ligne.constats),
     modele: ligne.modele,
     naf: JSON.parse(ligne.naf || '[]'),
+    attentes: ligne.attentes ?? '',
+    pilote: Number(ligne.pilote ?? 0),
+    piloteSirene: Boolean(ligne.pilote_sirene),
+    departements: JSON.parse(ligne.departements || '[]'),
   };
 }
 
 function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   return env.DB.prepare(
-    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le, naf) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le, naf, attentes, pilote, pilote_sirene, departements)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes, naf = excluded.naf,
-        exclure = excluded.exclure, constats = excluded.constats, modele = excluded.modele, modifie_le = excluded.modifie_le`,
+        exclure = excluded.exclure, constats = excluded.constats, modele = excluded.modele, modifie_le = excluded.modifie_le, attentes = excluded.attentes,
+        pilote = excluded.pilote, pilote_sirene = excluded.pilote_sirene, departements = excluded.departements`,
   ).bind(
     cle,
     cible.nom,
@@ -54,6 +82,10 @@ function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
     cible.modele ?? '',
     new Date().toISOString(),
     JSON.stringify(cible.naf ?? []),
+    cible.attentes ?? '',
+    cible.pilote ?? 0,
+    cible.piloteSirene ? 1 : 0,
+    JSON.stringify(cible.departements?.length ? cible.departements : DEPARTEMENTS_DEFAUT),
   );
 }
 
@@ -88,6 +120,7 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
           communes: unir(actuelle.communes, defaut.communes, normaliserTerme),
           exclure: unir(actuelle.exclure, defaut.exclure, (motif) => motif.source),
           naf: unir(actuelle.naf, defaut.naf ?? [], codeNaf),
+          attentes: actuelle.attentes || defaut.attentes || '',
         }
       : { cle, ...defaut };
   }
@@ -101,12 +134,20 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
   return Object.fromEntries([...defauts.map(([cle]) => cle), ...Object.keys(cibles)].map((cle) => [cle, cibles[cle]]));
 }
 
-// Lien mailto: avec l'email du modèle rempli pour ce prospect.
-export function brouillon(cible: Cible | undefined, p: { email: string; nom: string; recherche: string; constat: string; ville: string; constat_cle?: string }) {
+type PourBrouillon = { email: string; nom: string; recherche: string; constat: string; ville: string; constat_cle?: string };
+
+// L'email du modèle rempli pour ce prospect : objet et corps.
+export function texteBrouillon(cible: Cible | undefined, p: PourBrouillon) {
   const remplir = (texte: string) =>
     texte.replace(/\{\{(nom|recherche|constat|ville)\}\}/g, (_, champ: 'nom' | 'recherche' | 'constat' | 'ville') => (champ === 'nom' ? nomLisible(p.nom) : p[champ]) ?? '');
   const [objet, ...corps] = remplir(p.constat_cle === 'creation' ? MODELE_CREATION : cible?.modele || MODELE_EMAIL).split('\n');
-  return `mailto:${p.email}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps.join('\n').trim())}`;
+  return { objet, corps: corps.join('\n').trim() };
+}
+
+// Lien mailto: avec l'email du modèle rempli pour ce prospect.
+export function brouillon(cible: Cible | undefined, p: PourBrouillon) {
+  const { objet, corps } = texteBrouillon(cible, p);
+  return `mailto:${p.email}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps)}`;
 }
 
 // Les recherches « métier commune » d'une cible.
@@ -124,6 +165,13 @@ function lignes(texte: unknown) {
   return [...new Set(String(texte ?? '').split('\n').map((ligne) => ligne.trim()).filter(Boolean))];
 }
 
+const CONSTATS_DEFAUT = ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'];
+
+// Un mot proposé par Claude est cherché tel quel, pas comme une expression régulière.
+function echapperMotif(mot: string) {
+  return mot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function cleDepuisNom(nom: string) {
   return nom
     .normalize('NFD')
@@ -133,7 +181,7 @@ function cleDepuisNom(nom: string) {
     .replace(/^-|-$/g, '');
 }
 
-export async function pageCibles(url: URL, env: Env, erreur = '') {
+export async function pageCibles(url: URL, env: Env, erreur = '', proposition?: Proposition & { secteur: string }) {
   const cibles = await chargerCibles(env);
   const [parCible, couverts] = await env.DB.batch([
     env.DB.prepare("SELECT cible, COUNT(*) AS n, SUM(statut = 'nouveau') AS prets, SUM(statut = 'client') AS clients FROM prospects GROUP BY cible"),
@@ -142,9 +190,11 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
   const chiffres = Object.fromEntries((parCible.results as { cible: string; n: number; prets: number; clients: number }[]).map((c) => [c.cible, c]));
   const faits = new Set((couverts.results as { terme: string }[]).map(({ terme }) => terme));
 
-  const choisie = url.searchParams.get('cle') ?? '';
-  const nouvelle = url.searchParams.has('nouvelle');
-  const cible: Cible = cibles[choisie] ?? { cle: '', nom: '', metiers: [], communes: [], exclure: [], constats: ['pasDeSite', 'reseauSocial', 'annuaire', 'pasMobile', 'pasHttps', 'vieuxCopyright'], naf: [] };
+  const choisie = proposition ? '' : (url.searchParams.get('cle') ?? '');
+  const nouvelle = url.searchParams.has('nouvelle') || Boolean(proposition);
+  const cible: Cible = proposition
+    ? { cle: '', ...proposition, communes: VILLES, exclure: proposition.exclure.map((mot) => new RegExp(echapperMotif(mot), 'i')), departements: DEPARTEMENTS_DEFAUT }
+    : (cibles[choisie] ?? { cle: '', nom: '', metiers: [], communes: [], exclure: [], constats: CONSTATS_DEFAUT, naf: [], departements: DEPARTEMENTS_DEFAUT });
 
   const rangees = Object.values(cibles)
     .map((c) => {
@@ -173,8 +223,8 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
   const formulaire =
     choisie || nouvelle
       ? `<form method="post" action="/cibles" class="carte" style="margin-top: 16px">
-      <div class="carte-entete"><div><h2 class="carte-titre">${choisie ? `Modifier « ${echapper(cible.nom)} »` : 'Nouvelle cible'}</h2>
-        <p class="carte-description">Une cible regroupe un métier, ses communes et les constats qui comptent pour lui.</p></div></div>
+      <div class="carte-entete"><div><h2 class="carte-titre">${choisie ? `Modifier « ${echapper(cible.nom)} »` : proposition ? `Proposition de Claude pour « ${echapper(proposition.secteur)} »` : 'Nouvelle cible'}</h2>
+        <p class="carte-description">${proposition ? 'Rien n’est enregistré : relis, corrige, puis enregistre. Les communes reprennent les villes d’Alsace de plus de 5 000 habitants.' : 'Une cible regroupe un métier, ses communes et les constats qui comptent pour lui.'}</p></div></div>
       <div class="carte-contenu formulaire">
         <input type="hidden" name="cle" value="${echapper(cible.cle)}">
         <div class="champ"><label for="nom">Nom</label><input id="nom" type="text" name="nom" value="${echapper(cible.nom)}" placeholder="Restaurants" required></div>
@@ -188,6 +238,12 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
             <span class="aide">Un par ligne, cherché dans le nom et la catégorie Google. Les expressions régulières marchent aussi.</span></div>
           <div class="champ"><label for="naf">Codes d’activité des nouvelles entreprises</label><textarea id="naf" name="naf" rows="10" placeholder="01.21Z Culture de la vigne">${echapper(cible.naf.join('\n'))}</textarea>
             <span class="aide">Code NAF puis libellé, un par ligne. Sert à chercher les entreprises tout juste créées dans le registre Sirene.</span></div>
+        </div>
+        <div class="ligne">
+          <div class="champ"><label for="attentes">Ce qu’un bon site doit avoir dans ce métier</label><textarea id="attentes" name="attentes" rows="4" placeholder="La prise de rendez-vous en ligne, les tarifs…">${echapper(cible.attentes ?? '')}</textarea>
+            <span class="aide">Claude s’en sert pour juger les sites de cette cible.</span></div>
+          <div class="champ"><label for="departements-cible">Départements des nouvelles entreprises</label><input id="departements-cible" type="text" name="departements" value="${echapper((cible.departements?.length ? cible.departements : DEPARTEMENTS_DEFAUT).join(', '))}">
+            <span class="aide">Séparés par des virgules. Servent au pilote automatique et au formulaire des nouvelles entreprises.</span></div>
         </div>
         <div class="champ"><label for="modele">Email écrit à la main</label>
           <textarea id="modele" name="modele" rows="11">${echapper(cible.modele || MODELE_EMAIL)}</textarea>
@@ -204,9 +260,18 @@ export async function pageCibles(url: URL, env: Env, erreur = '') {
     'Cibles',
     `<header class="page-entete">
       <div><h1>Cibles</h1><p>Les métiers que tu prospectes, et ce qu’il reste à couvrir.</p></div>
-      <div class="actions-entete"><a href="/cibles?nouvelle" class="btn">${icone('plus')}Nouvelle cible</a></div>
+      <div class="actions-entete"><a href="/cibles?nouvelle" class="btn${claudeActif(env) ? ' contour' : ''}">${icone('plus')}Nouvelle cible</a></div>
     </header>
     ${erreur ? `<div class="alerte danger"><p>${echapper(erreur)}</p></div>` : ''}
+    ${
+      claudeActif(env)
+        ? `<form method="post" action="/cibles/proposer" class="alerte proposer-cible">
+            <p><strong>Nouveau secteur avec Claude.</strong> Il propose les recherches, les codes NAF, les exclusions, ce qu’un bon site doit avoir et l’email. Tu relis avant d’enregistrer.</p>
+            <input type="text" name="secteur" placeholder="photographes, restaurants, paysagistes…" required aria-label="Secteur" value="${echapper(proposition?.secteur ?? '')}">
+            <button type="submit" class="btn petit" onclick="setTimeout(() => { this.disabled = true; this.textContent = 'Claude prépare la cible…'; })">${icone('cibles', 14)}Proposer</button>
+          </form>`
+        : ''
+    }
     <div class="carte"><div class="tableau"><table><thead><tr><th>Cible</th><th>Prospects</th><th>Faites ces 6 derniers mois</th><th></th></tr></thead><tbody>${rangees}</tbody></table></div></div>
     ${formulaire}`,
     'cibles',
@@ -224,34 +289,100 @@ function modeleEnvoye(valeur: unknown) {
   return texte === MODELE_EMAIL ? '' : texte;
 }
 
-export async function enregistrerCible(requete: Request, env: Env) {
-  const donnees = await requete.formData();
-  const nom = String(donnees.get('nom') ?? '').trim();
-  const metiers = lignes(donnees.get('metiers'));
-  let cle = String(donnees.get('cle') ?? '');
+export type ChampsCible = {
+  cle?: string;
+  nom: string;
+  metiers: string[];
+  communes?: string[];
+  exclure?: string[];
+  constats?: string[];
+  modele?: string;
+  naf?: string[];
+  attentes?: string;
+  departements?: string[];
+};
+
+// Crée ou modifie une cible, depuis l'admin ou depuis Claude. Les réglages du
+// pilote et les champs non fournis gardent leur valeur. Rend la clé, ou l'erreur.
+export async function sauverCible(env: Env, champs: ChampsCible): Promise<{ cle: string } | { erreur: string }> {
+  const nom = champs.nom.trim();
+  const metiers = [...new Set(champs.metiers.map((metier) => metier.trim()).filter(Boolean))];
+  if (!nom || !metiers.length) return { erreur: 'Le nom et le métier sont obligatoires.' };
+  const existantes = await chargerCibles(env);
+  let cle = champs.cle ? cleDepuisNom(champs.cle) : '';
   if (!cle) {
     // Nouvelle cible : une clé tirée du nom, sans écraser une cible existante.
-    const existantes = await chargerCibles(env);
     const base = cleDepuisNom(nom) || 'cible';
     cle = base;
     for (let n = 2; cle in existantes; n++) cle = `${base}-${n}`;
   }
-  if (!nom || !metiers.length) return pageCibles(new URL(requete.url), env, 'Le nom et le métier sont obligatoires.');
-
-  const exclure: RegExp[] = [];
-  for (const motif of lignes(donnees.get('exclure'))) {
-    try {
-      exclure.push(new RegExp(motif, 'i'));
-    } catch {
-      return pageCibles(new URL(requete.url), env, `« ${motif} » n’est pas une expression valide.`);
+  const actuelle = existantes[cle];
+  let exclure = actuelle?.exclure ?? [];
+  if (champs.exclure) {
+    exclure = [];
+    for (const motif of champs.exclure.map((m) => m.trim()).filter(Boolean)) {
+      try {
+        exclure.push(new RegExp(motif, 'i'));
+      } catch {
+        return { erreur: `« ${motif} » n’est pas une expression valide.` };
+      }
     }
   }
+  await insertion(env, cle, {
+    nom,
+    metiers,
+    communes: champs.communes ?? actuelle?.communes ?? VILLES,
+    exclure,
+    constats: (champs.constats ?? actuelle?.constats ?? CONSTATS_DEFAUT).filter((constat) => constat in CONSTATS),
+    modele: champs.modele === undefined ? (actuelle?.modele ?? '') : modeleEnvoye(champs.modele),
+    naf: champs.naf ?? actuelle?.naf ?? [],
+    attentes: champs.attentes ?? actuelle?.attentes ?? '',
+    departements: champs.departements ?? actuelle?.departements ?? DEPARTEMENTS_DEFAUT,
+    pilote: actuelle?.pilote ?? 0,
+    piloteSirene: actuelle?.piloteSirene ?? false,
+  }).run();
+  return { cle };
+}
+
+export async function enregistrerCible(requete: Request, env: Env) {
+  const donnees = await requete.formData();
   const constats = Object.keys(CONSTATS)
     .map((constat) => ({ constat, rang: Number(donnees.get(`ordre_${constat}`)) }))
     .filter(({ rang }) => rang > 0)
     .sort((a, b) => a.rang - b.rang)
     .map(({ constat }) => constat);
+  const nom = String(donnees.get('nom') ?? '').trim();
+  const resultat = await sauverCible(env, {
+    cle: String(donnees.get('cle') ?? ''),
+    nom,
+    metiers: lignes(donnees.get('metiers')),
+    communes: lignes(donnees.get('communes')),
+    exclure: lignes(donnees.get('exclure')),
+    constats,
+    modele: String(donnees.get('modele') ?? ''),
+    naf: lignes(donnees.get('naf')),
+    attentes: String(donnees.get('attentes') ?? '').trim(),
+    departements: String(donnees.get('departements') ?? '')
+      .split(/[\s,;]+/)
+      .map((d) => d.trim().toUpperCase())
+      .filter(Boolean),
+  });
+  if ('erreur' in resultat) return pageCibles(new URL(requete.url), env, resultat.erreur);
+  return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(resultat.cle)}&message=${encodeURIComponent(`Cible « ${nom} » enregistrée`)}`, requete.url).toString(), 303);
+}
 
-  await insertion(env, cle, { nom, metiers, communes: lignes(donnees.get('communes')), exclure, constats, modele: modeleEnvoye(donnees.get('modele')), naf: lignes(donnees.get('naf')) }).run();
-  return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(cle)}&message=${encodeURIComponent(`Cible « ${nom} » enregistrée`)}`, requete.url).toString(), 303);
+// « photographes » → une cible préremplie par Claude, à relire avant d'enregistrer.
+export async function proposerCibleFormulaire(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const secteur = String(donnees.get('secteur') ?? '').trim().slice(0, 120);
+  const url = new URL('/cibles', requete.url);
+  if (!secteur) return pageCibles(url, env, 'Indique un secteur, par exemple « photographes ».');
+  if (!claudeActif(env)) return pageCibles(url, env, 'Ajoute OPENROUTER_API_KEY ou ANTHROPIC_API_KEY dans .dev.vars pour que Claude propose des cibles.');
+  try {
+    const proposition = await proposerCible(env, secteur);
+    if (!proposition || !proposition.metiers.length) return pageCibles(url, env, `Claude n’a pas proposé de cible pour « ${secteur} ».`);
+    return pageCibles(url, env, '', { ...proposition, secteur });
+  } catch (erreur) {
+    return pageCibles(url, env, `La proposition a échoué : ${String(erreur).slice(0, 200)}`);
+  }
 }

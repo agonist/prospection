@@ -12,7 +12,7 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [] };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [] };
   // Registre Sirene : une entreprise créée il y a 10 jours, et un résultat vide.
   const creees = [
     { status: 'found', siret: '12345678900011', siren: '123456789', name: 'DOMAINE NOUVEAU EARL', creationDate: new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10), nafCode: '01.21Z', address: '3 RUE DES VIGNES', postalCode: '67140', city: 'BARR', department: '67' },
@@ -77,6 +77,20 @@ function demarrerFauxApify(fiches) {
           const contenu = JSON.stringify({ email: 'bonjour@domaine-e.fr', source: 'https://annuaire.example/domaine-e' });
           const annotations = [{ type: 'url_citation', url_citation: { url: 'https://annuaire.example/domaine-e', content: 'Domaine E, Barr. Écrire à bonjour@domaine-e.fr' } }];
           return json({ id: 'gen-2', model: entree.model, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: contenu, annotations } }] });
+        }
+        if (entree.messages[0].content.includes('nouvelle cible de prospection')) {
+          // Proposition de cible : un code NAF inventé et un constat inconnu, à écarter.
+          appels.propositions.push(entree);
+          const proposition = {
+            nom: 'Photographes',
+            metiers: ['Photographe', 'photographe de mariage'],
+            naf: ['74.20Z', '99.99Z'],
+            exclure: ['studio harcourt', 'photomaton'],
+            attentes: 'Une galerie de réalisations et les tarifs des séances.',
+            constats: ['pasDeSite', 'pasDeTarifs', 'inconnu'],
+            modele: '{{nom}}, vos photos\nBonjour,\n\nEn cherchant « {{recherche}} », j’ai remarqué que {{constat}}.\n\nBas',
+          };
+          return json({ id: 'gen-3', model: entree.model, usage: { cost: 0.01 }, choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(proposition) } }] });
         }
         appels.claude.push({ cle: req.headers.authorization, entree });
         const avis = avisPour(entree.messages.find((m) => m.role === 'user').content);
@@ -396,6 +410,130 @@ test('avec une clé OpenRouter, Claude est appelé par OpenRouter', { timeout: 1
     assert.match(await (await fetch(`${admin}/recherches`)).text(), /0,60 \$ aujourd’hui/);
     assert.equal(faux.appels.recherches[0].entree.plugins[0].id, 'web');
     assert.match(await (await fetch(`${admin}/p/E`)).text(), /badge-nouveau[\s\S]*bonjour@domaine-e\.fr/);
+  } finally {
+    process.kill(-worker.pid);
+    faux.serveur.close();
+  }
+});
+
+test('Claude propose une cible, pilote l’outil par MCP, et le pilote automatique lance seul les recherches', { timeout: 120_000 }, async () => {
+  const fiches = [{ placeId: 'P1', title: 'Studio Lumière', city: 'Barr', categoryName: 'Photographe' }];
+  const faux = await demarrerFauxApify(fiches);
+  const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
+  const vars = join(persistance, '.dev.vars');
+  writeFileSync(vars, `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nOPENROUTER_API_KEY=cle-openrouter\nOPENROUTER_API=http://127.0.0.1:${faux.port}/openrouter/\n`);
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  const port = PORT_WORKER + 2;
+  const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
+    cwd: racine,
+    stdio: 'ignore',
+    detached: true,
+  });
+  try {
+    const admin = `http://127.0.0.1:${port}`;
+    await attendre(admin);
+    const passage = () => fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
+
+    // Proposition de cible : seuls les codes NAF et les constats connus sont gardés, rien n'est enregistré.
+    const proposee = await (await fetch(`${admin}/cibles/proposer`, { method: 'POST', body: new URLSearchParams({ secteur: 'photographes' }) })).text();
+    assert.equal(faux.appels.propositions[0].response_format.json_schema.name, 'cible');
+    assert.match(faux.appels.propositions[0].messages[1].content, /74\.20Z Activités photographiques/);
+    assert.match(proposee, /Proposition de Claude pour « photographes »/);
+    assert.match(proposee, /<textarea id="metiers"[^>]*>photographe\nphotographe de mariage</);
+    assert.match(proposee, /74\.20Z Activités photographiques/);
+    assert.doesNotMatch(proposee, /99\.99Z/);
+    assert.match(proposee, /studio harcourt\nphotomaton/);
+    assert.match(proposee, /Une galerie de réalisations/);
+    assert.doesNotMatch(await (await fetch(`${admin}/cibles`)).text(), /Photographes/);
+
+    // Serveur MCP : poignée de main, liste des outils, origine contrôlée.
+    let numero = 0;
+    const mcp = async (method, params, entetes = {}) => {
+      const reponse = await fetch(`${admin}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...entetes },
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++numero, method, params }),
+      });
+      return reponse.json();
+    };
+    const outil = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result;
+    const lire = (resultat) => JSON.parse(resultat.content[0].text);
+
+    const init = await mcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+    assert.equal(init.result.protocolVersion, '2025-06-18');
+    assert.equal(init.result.serverInfo.name, 'prospection');
+    assert.match(init.result.instructions, /N'invente jamais une adresse email/);
+    const notification = await fetch(`${admin}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
+    assert.equal(notification.status, 202);
+    assert.equal((await fetch(`${admin}/mcp`)).status, 405);
+    assert.equal((await fetch(`${admin}/mcp`, { method: 'POST', headers: { origin: 'https://evil.example' }, body: '{}' })).status, 403);
+    const { tools } = (await mcp('tools/list')).result;
+    assert.deepEqual(
+      tools.map((t) => t.name),
+      ['tableau_de_bord', 'chercher_prospects', 'voir_prospect', 'changer_statut', 'enregistrer_email', 'chercher_email', 'lister_cibles', 'chercher_codes_naf', 'enregistrer_cible', 'lancer_recherche', 'lancer_nouvelles_entreprises', 'regler_pilote', 'journal'],
+    );
+    assert.ok(tools.every((t) => t.inputSchema.type === 'object' && t.description));
+    assert.equal((await mcp('outil/inconnu')).error.code, -32601);
+
+    // Claude crée la cible et règle le pilote.
+    assert.ok(lire(await outil('chercher_codes_naf', { mots: 'photo' })).includes('74.20Z Activités photographiques'));
+    const refusee = await outil('enregistrer_cible', { nom: 'Photographes', metiers: ['photographe'], naf: ['00.00Z'] });
+    assert.equal(refusee.isError, true);
+    assert.match(refusee.content[0].text, /Codes NAF inconnus : 00\.00Z/);
+    const creee = lire(await outil('enregistrer_cible', { nom: 'Photographes', metiers: ['photographe'], communes: ['Barr', 'Obernai'], naf: ['74.20Z'], exclure: ['harcourt'] }));
+    assert.equal(creee.cle, 'photographes');
+    const cible = lire(await outil('lister_cibles')).find((c) => c.cle === 'photographes');
+    assert.deepEqual(cible.naf, ['74.20Z Activités photographiques']);
+    assert.deepEqual(cible.recherches, { total: 2, restantes: 2 });
+    assert.match((await outil('regler_pilote', { cible: 'inconnue', recherches_par_jour: 5 })).content[0].text, /Cible inconnue/);
+    assert.deepEqual(lire(await outil('regler_pilote', { cible: 'photographes', recherches_par_jour: 1, nouvelles_entreprises: true })), {
+      cible: 'photographes',
+      recherches_par_jour: 1,
+      nouvelles_entreprises: true,
+    });
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /Actif sur 1 cible/);
+
+    // Le pilote lance d'abord les nouvelles entreprises, puis une seule recherche Google Maps par jour.
+    await passage();
+    assert.deepEqual(faux.appels.sirene[0], { departments: ['67', '68'], nafCodes: ['74.20Z'], lastNDays: 8, onlyHeadquarters: true, onlyActive: true, maxResults: 500 });
+    for (let i = 0; i < 8 && !faux.appels.runs.length; i++) await passage();
+    assert.equal(faux.appels.runs.length, 1);
+    assert.deepEqual(faux.appels.runs[0].entree.searchStringsArray, ['photographe Barr']);
+    assert.equal(faux.appels.runs[0].entree.maxCrawledPlacesPerSearch, 30);
+    for (let i = 0; i < 6; i++) await passage();
+    assert.equal(faux.appels.runs.length, 1);
+    assert.equal(faux.appels.sirene.length, 1);
+    const journal = lire(await outil('journal'));
+    assert.ok(journal.recherches.every((r) => r.auto && r.statut === 'terminee'));
+    assert.ok(journal.messages.some((m) => /lancée par le pilote automatique : 1 recherches/.test(m.message)));
+    const tableau = lire(await outil('tableau_de_bord'));
+    assert.equal(tableau.tache.active, true);
+    assert.deepEqual(tableau.cibles.find((c) => c.cle === 'photographes').pilote, { recherches_par_jour: 1, lancees_aujourdhui: 1, nouvelles_entreprises: true });
+    assert.equal(tableau.cibles.find((c) => c.cle === 'photographes').recherches_restantes, 1);
+
+    // Lire et ranger les fiches ; une adresse doit figurer sur la page citée.
+    const trouvees = lire(await outil('chercher_prospects', { cible: 'photographes', q: 'Lumière' }));
+    assert.equal(trouvees.total, 1);
+    assert.equal(trouvees.prospects[0].fiche, `${admin}/p/P1`);
+    const inventee = lire(await outil('enregistrer_email', { id: 'P1', email: 'devine@studio-lumiere.fr', source: `http://127.0.0.1:${faux.port}/annuaire-g/` }));
+    assert.equal(inventee.statut, 'a_verifier');
+    assert.equal(lire(await outil('voir_prospect', { id: 'P1' })).email_propose, 'devine@studio-lumiere.fr');
+    const prouvee = lire(await outil('enregistrer_email', { id: 'P1', email: 'Contact@Domaine-Nouveau.fr', source: `http://127.0.0.1:${faux.port}/annuaire-e/` }));
+    assert.equal(prouvee.statut, 'nouveau');
+    assert.equal(prouvee.email, 'contact@domaine-nouveau.fr');
+    assert.equal((await outil('enregistrer_email', { id: 'P1', email: 'pas une adresse', source: 'Bas' })).isError, true);
+    assert.equal(lire(await outil('changer_statut', { ids: ['P1', 'inconnu'], statut: 'desinscrit', note: 'Ne veut plus d’email' })).modifiees, 1);
+    assert.deepEqual(lire(await outil('changer_statut', { ids: ['P1'], statut: 'nouveau' })).desinscrites_inchangees, ['P1']);
+    const fiche = lire(await outil('voir_prospect', { id: 'P1' }));
+    assert.equal(fiche.statut, 'desinscrit');
+    assert.equal(fiche.note, 'Ne veut plus d’email');
+
+    // Recherche lancée par Claude : seulement ce qui reste à faire.
+    const lancee = lire(await outil('lancer_recherche', { cible: 'photographes' }));
+    assert.deepEqual(lancee.lancees, ['photographe Obernai']);
+    assert.equal(lancee.deja_faites, 1);
+    assert.deepEqual(faux.appels.runs[1].entree.searchStringsArray, ['photographe Obernai']);
+    assert.equal((await outil('lancer_recherche', { cible: 'photographes' })).isError, true);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();
