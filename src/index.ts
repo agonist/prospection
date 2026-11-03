@@ -40,6 +40,8 @@ import { tableau } from './tableau';
 import { actionEmail, pageTraiter, sourceLien, traiter, trouverEmail } from './traiter';
 import { claudeActif } from './claude';
 import { mcp } from './mcp';
+import { natureEmail } from '../scripts/lib.mjs';
+import { RAISONS } from '../scripts/base.mjs';
 import { ENVOI_MAX, type Lead, campagnes, envoyerLeads, etatCampagne, smartleadActif } from './smartlead';
 
 // Redirige après une action, avec un message affiché en bas de l'écran.
@@ -373,24 +375,36 @@ function selectionEnvoi(filtres: Filtres) {
   };
 }
 
+// Une adresse classée « au nom de l'entreprise » avant que la règle des prénoms ne
+// s'affine (gilbert.eber@…) est revue au moment de partir : nominative, elle passe
+// en « À écrire » et ne part pas (règle CNIL).
+function sansNominatives(env: Env, fiches: Prospect[], maintenant: string) {
+  const nominatives = fiches.filter((p) => p.email_statut === 'entreprise' && natureEmail(p.email, p.nom, p.site) === 'nominative');
+  const ecartees = new Set(nominatives.map((p) => p.id));
+  return {
+    gardees: fiches.filter((p) => !ecartees.has(p.id)),
+    requetes: nominatives.map((p) =>
+      env.DB.prepare("UPDATE prospects SET statut = 'a_ecrire', email_statut = 'nominative', raison = ?, statut_le = ? WHERE id = ? AND statut = 'nouveau'").bind(RAISONS.ecrire, maintenant, p.id),
+    ),
+  };
+}
+
+const enCampagne = (env: Env, id: string, maintenant: string) =>
+  env.DB.prepare("UPDATE prospects SET statut = 'en_campagne', statut_le = ?1, contacte_le = COALESCE(contacte_le, ?1) WHERE id = ?2 AND statut = 'nouveau'").bind(maintenant, id);
+
 const sourceEnvoi = (p: Pick<Prospect, 'origine'>) => (p.origine === 'sirene' ? 'le registre des entreprises' : 'votre fiche Google');
 
 async function exporter(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const filtres = filtresEnvoi(donnees);
   const { selection, valeurs } = selectionEnvoi(filtres);
-  const { results } = await env.DB.prepare(`SELECT * FROM prospects ${selection} ORDER BY vu_le DESC`)
+  const { results: selectionnees } = await env.DB.prepare(`SELECT * FROM prospects ${selection} ORDER BY vu_le DESC`)
     .bind(...valeurs)
     .all<Prospect>();
-
-  if (donnees.get('marquer') && results.length) {
-    const maintenant = new Date().toISOString();
-    await env.DB.prepare(
-      `UPDATE prospects SET statut = 'en_campagne', statut_le = ?, contacte_le = COALESCE(contacte_le, ?) ${selection}`,
-    )
-      .bind(maintenant, maintenant, ...valeurs)
-      .run();
-  }
+  const maintenant = new Date().toISOString();
+  const { gardees: results, requetes } = sansNominatives(env, selectionnees, maintenant);
+  if (donnees.get('marquer')) requetes.push(...results.map((p) => enCampagne(env, p.id, maintenant)));
+  if (requetes.length) await env.DB.batch(requetes);
 
   const corps = csv(
     results.map((p) => ({
@@ -423,9 +437,11 @@ async function envoyerSmartlead(requete: Request, env: Env) {
   const voulu = Math.min(ENVOI_MAX, Math.max(1, Math.floor(Number(donnees.get('nombre'))) || 50));
   const cibles = await chargerCibles(env);
   const { selection, valeurs } = selectionEnvoi(filtres);
-  const { results } = await env.DB.prepare(`SELECT *, ${SCORE} AS score FROM prospects ${selection} ORDER BY score DESC, vu_le DESC`)
+  const { results: selectionnees } = await env.DB.prepare(`SELECT *, ${SCORE} AS score FROM prospects ${selection} ORDER BY score DESC, vu_le DESC`)
     .bind(...valeurs)
     .all<Prospect>();
+  const maintenant = new Date().toISOString();
+  const { gardees: results, requetes } = sansNominatives(env, selectionnees, maintenant);
 
   const campagneDe = (p: Prospect) => (p.origine === 'sirene' ? cibles[p.cible]?.smartleadCreation : cibles[p.cible]?.smartlead) ?? '';
   const parCampagne = new Map<string, Prospect[]>();
@@ -444,6 +460,7 @@ async function envoyerSmartlead(requete: Request, env: Env) {
     choisies += 1;
   }
   if (!choisies) {
+    if (requetes.length) await env.DB.batch(requetes);
     return apres(requete, retour, sansCampagne ? 'Aucune campagne Smartlead pour ces fiches : choisis-la dans Cibles.' : 'Aucune fiche prête à envoyer.');
   }
 
@@ -458,8 +475,6 @@ async function envoyerSmartlead(requete: Request, env: Env) {
     custom_fields: { salutation: 'Bonjour,', recherche: p.recherche, constat: p.constat, source: sourceEnvoi(p), ville: p.ville },
   });
   const noms = await campagnes(env).catch(() => []);
-  const maintenant = new Date().toISOString();
-  const requetes: D1PreparedStatement[] = [];
   const journal = (niveau: string, message: string) =>
     env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, NULL)').bind(maintenant, niveau, message);
   const morceaux: string[] = [];
@@ -474,9 +489,7 @@ async function envoyerSmartlead(requete: Request, env: Env) {
     for (const p of fiches) {
       const email = p.email.toLowerCase();
       if (partis.has(email)) {
-        requetes.push(
-          env.DB.prepare("UPDATE prospects SET statut = 'en_campagne', statut_le = ?1, contacte_le = COALESCE(contacte_le, ?1) WHERE id = ?2 AND statut = 'nouveau'").bind(maintenant, p.id),
-        );
+        requetes.push(enCampagne(env, p.id, maintenant));
       } else if (refus.has(email)) {
         // Désinscrite ou bloquée chez Smartlead : on ne la propose plus.
         requetes.push(env.DB.prepare("UPDATE prospects SET statut = 'desinscrit', statut_le = ? WHERE lower(email) = ? AND statut NOT IN ('desinscrit', 'client')").bind(maintenant, email));

@@ -156,8 +156,20 @@ const PRENOMS = new Set(
   laurence anne julie aurelie caroline emilie claire camille sarah laura pauline elodie audrey melanie marion lucie chloe manon emma lea
   helene agnes brigitte monique nicole patricia corinne florence muriel karine virginie delphine severine sabrina vanessa alice clara
   charlotte juliette amandine jessica marine morgane elise eva louise jeanne anais justine ophelie margaux estelle beatrice odile
-  josiane chantal annie evelyne mireille jacqueline danielle genevieve fabienne myriam carole cecile magali gaelle solene`.split(/\s+/),
+  josiane chantal annie evelyne mireille jacqueline danielle genevieve fabienne myriam carole cecile magali gaelle solene
+  gilbert alphonse xavier felix albert robert henri joseph charles raymond marcel lucien hubert emile eugene auguste alfred
+  edouard fernand gaston georges raphael francis etienne gabriel leon leonard jules victor armand maurice roland jose bertrand
+  clement benoit gregoire hugues marius regis rodolphe tristan valentin aime achille alois aloyse ignace materne fridolin
+  germaine marguerite madeleine suzanne simone yvette yvonne colette denise paulette therese odette lucienne renee arlette
+  huguette gisele andree marcelle michele pierrette`.split(/\s+/),
 );
+
+// « claire », ou deux prénoms collés : « jeanmarie », « annemarie ».
+function estPrenom(mot) {
+  if (PRENOMS.has(mot)) return true;
+  for (let coupe = 3; coupe <= mot.length - 3; coupe++) if (PRENOMS.has(mot.slice(0, coupe)) && PRENOMS.has(mot.slice(coupe))) return true;
+  return false;
+}
 
 function mots(texte) {
   return String(texte ?? '')
@@ -178,7 +190,7 @@ function motsEntreprise(nom, site) {
 export function natureEmail(email, nom = '', site = '') {
   if (estGenerique(email)) return 'generique';
   const local = mots(email.split('@')[0]);
-  if (local.some((mot) => PRENOMS.has(mot))) return 'nominative';
+  if (local.some(estPrenom)) return 'nominative';
   if (/^[a-z][._-][a-z]+$/.test(email.split('@')[0])) return 'nominative'; // c.martin@
   const entreprise = motsEntreprise(nom, site);
   if (local.some((mot) => MOTS_METIER.test(mot) || (mot.length >= 4 && entreprise.has(mot)))) return 'entreprise';

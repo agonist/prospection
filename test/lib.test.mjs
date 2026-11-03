@@ -25,6 +25,13 @@ test('distingue l’adresse de l’entreprise de celle d’une personne', () => 
   assert.equal(natureEmail('michel.dupont@orange.fr', 'Menuiserie Dupont'), 'nominative');
   assert.equal(natureEmail('c.martin@gmail.com', 'Claire Martin Naturopathe'), 'nominative');
   assert.equal(natureEmail('kmartin@gmail.com', 'Cabinet'), 'nominative');
+  // Un prénom dans l'adresse désigne une personne, même s'il est aussi dans le nom du domaine.
+  assert.equal(natureEmail('gilbert.eber@orange.fr', 'Vins Eber G.'), 'nominative');
+  assert.equal(natureEmail('vins.alphonse.kuentz@orange.fr', 'Vins Alphonse Kuentz'), 'nominative');
+  assert.equal(natureEmail('jeanmarie.wassler@wanadoo.fr', 'Wassler Jean-Marie Earl'), 'nominative');
+  assert.equal(natureEmail('eppele-felix-earl@wanadoo.fr', 'Vins Eppelé'), 'nominative');
+  assert.equal(natureEmail('domainemetzgeiger@gmail.com', 'Earl Domaine Metz-geiger'), 'entreprise');
+  assert.equal(natureEmail('gerber.chatenois@orange.fr', 'Domaine Gerber'), 'entreprise');
 
   assert.deepEqual(choisirEmail(['claire.martin@gmail.com', 'cabinet.martin@gmail.com'], '', 'Claire Martin'), { email: 'cabinet.martin@gmail.com', statut: 'entreprise' });
   // Le domaine de l'email reprend le nom de l'entreprise : c'est le sien, pas celui d'une agence.

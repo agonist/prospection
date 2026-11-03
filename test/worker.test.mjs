@@ -722,6 +722,7 @@ test('avec une clé Smartlead, les fiches partent dans la campagne de la cible e
     fiche('S5', 'Domaine Refus', 'info@domaine-refus.fr', 20),
     fiche('S6', 'Domaine Six', 'claire.martin@gmail.com', 20),
     fiche('S7', 'Domaine Sept', 'contact@domaine-sept.fr', 0),
+    fiche('S8', 'Vins Eber G.', 'gilbert.eber@orange.fr', 20),
   ]);
   const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
   const vars = join(persistance, '.dev.vars');
@@ -747,6 +748,8 @@ test('avec une clé Smartlead, les fiches partent dans la campagne de la cible e
     const statut = async (id) => (await (await fetch(`${admin}/p/${id}`)).text()).match(/class="badge badge-([a-z_]+)"/)[1];
     assert.equal(await statut('S1'), 'nouveau');
     assert.equal(await statut('S6'), 'a_ecrire');
+    // Un prénom dans l'adresse : à écrire à la main, même s'il est dans le nom du domaine.
+    assert.equal(await statut('S8'), 'a_ecrire');
     // Aucune synchronisation tant qu'aucune cible n'a de campagne.
     assert.equal(faux.appels.smartlead.length, 0);
 
@@ -771,6 +774,10 @@ test('avec une clé Smartlead, les fiches partent dans la campagne de la cible e
     assert.match(liste, /action="\/smartlead\/envoyer"/);
     assert.match(liste, /name="nombre" value="6"/);
 
+    // Une fiche classée avant la règle des prénoms est revue au moment de partir.
+    execFileSync('npx', ['wrangler', 'd1', 'execute', 'prospection', '--local', '--persist-to', persistance, '--command', "UPDATE prospects SET statut = 'nouveau', email_statut = 'entreprise' WHERE id = 'S8'"], { cwd: racine, stdio: 'ignore' });
+    assert.equal(await statut('S8'), 'nouveau');
+
     // Les 5 plus prioritaires partent ; Domaine Sept (sans avis) attend, l'adresse nominative ne part jamais.
     const envoi = await fetch(`${admin}/smartlead/envoyer`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', statut: 'nouveau', nombre: '5' }), redirect: 'manual' });
     assert.equal(envoi.status, 303);
@@ -787,6 +794,8 @@ test('avec une clé Smartlead, les fiches partent dans la campagne de la cible e
     assert.equal(await statut('S5'), 'desinscrit');
     assert.equal(await statut('S7'), 'nouveau');
     assert.equal(await statut('S6'), 'a_ecrire');
+    assert.equal(await statut('S8'), 'a_ecrire');
+    assert.ok(!ajout.corps.lead_list.some((l) => l.email === 'gilbert.eber@orange.fr'));
 
     // La synchronisation : une réponse, un « stop », une désinscription, un silence.
     await passage();

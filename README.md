@@ -171,7 +171,7 @@ Quand une conversation avance (maquette envoyée, client, pas intéressé), mett
 
 Les artisans et praticiens en nom propre sont des personnes physiques : leurs données sont des données personnelles.
 
-- Smartlead ne reçoit que les adresses **génériques** (contact@, info@…) et celles **au nom de l'entreprise** (menuiserie.dupont@…, domaine.muller@…), qui ne désignent pas une personne. Une adresse qui contient un prénom (claire.martin@, c.martin@) est nominative : elle passe en « À écrire » et ne part jamais dans Smartlead.
+- Smartlead ne reçoit que les adresses **génériques** (contact@, info@…) et celles **au nom de l'entreprise** (menuiserie.dupont@…, domaine.muller@…), qui ne désignent pas une personne. Une adresse qui contient un prénom (claire.martin@, c.martin@, jeanmarie.wassler@, et même vins.alphonse.kuentz@ quand le domaine porte le nom d'une personne) est nominative : elle passe en « À écrire » et ne part jamais dans Smartlead. L'export et l'envoi revoient chaque adresse au moment de partir, y compris celles classées avant que la règle ne s'affine.
 - Chaque email propose de se désinscrire. Une demande de désinscription passe la fiche en **Désinscrit**, et elle y reste. Avec la clé Smartlead, une désinscription dans Smartlead ou une réponse « stop » le fait toute seule ; sinon, le faire à la main.
 - Un prospect sans nouvelles depuis 3 ans doit être effacé. L'admin affiche un bandeau quand il y en a, avec un bouton pour les effacer. Les clients, les désinscrits et les échanges en cours ne sont jamais effacés.
 
