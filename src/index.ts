@@ -40,6 +40,7 @@ import { tableau } from './tableau';
 import { actionEmail, pageTraiter, sourceLien, traiter, trouverEmail } from './traiter';
 import { claudeActif } from './claude';
 import { mcp } from './mcp';
+import { ENVOI_MAX, type Lead, campagnes, envoyerLeads, etatCampagne, smartleadActif } from './smartlead';
 
 // Redirige après une action, avec un message affiché en bas de l'écran.
 function apres(requete: Request, chemin: string, message: string) {
@@ -152,6 +153,27 @@ async function liste(url: URL, env: Env) {
     .join('');
   const compte = `${nombre} prospect${nombre > 1 ? 's' : ''}${filtres.statut ? ` <em>· ${echapper(STATUTS[filtres.statut] ?? filtres.statut)}</em>` : ''}`;
 
+  // Avec la clé Smartlead et une campagne choisie pour la cible, les fiches partent en un clic.
+  const branchees = filtres.cible ? [cibles[filtres.cible]].filter(Boolean) : Object.values(cibles);
+  const avecCampagne = branchees.some((c) => c.smartlead || c.smartleadCreation);
+  const exportCsv = `<button type="submit" formaction="/export" name="marquer" value="1" class="btn ${smartleadActif(env) && avecCampagne ? 'fantome' : ''} petit">${icone('telecharger', 14)}Exporter en CSV</button>`;
+  const envoi =
+    smartleadActif(env) && avecCampagne
+      ? `<form class="alerte succes" method="post" action="/smartlead/envoyer">${champsCaches}
+          <p><strong>${nombre} prospects prêts.</strong> Les plus prioritaires partent dans la campagne Smartlead de leur cible. Seules les adresses génériques partent, jamais les désinscrits.</p>
+          <label class="envoi-nombre">Envoyer <input type="number" name="nombre" value="${Math.min(nombre, 50)}" min="1" max="${Math.min(nombre, ENVOI_MAX)}" class="court" aria-label="Nombre de fiches"> fiches</label>
+          <button type="submit" class="btn petit" onclick="return confirm('Envoyer ' + this.form.nombre.value + ' fiches dans Smartlead ?')">${icone('email', 14)}Envoyer dans Smartlead</button>
+          ${exportCsv}
+        </form>`
+      : `<form class="alerte succes" method="post" action="/export">${champsCaches}
+          <p><strong>${nombre} prospects prêts.</strong> L’export ne prend que les adresses génériques, sans les désinscrits, et les passe en « En campagne ».${
+            smartleadActif(env)
+              ? ` Pour les envoyer en un clic, choisis la campagne Smartlead de ${filtres.cible ? 'cette cible' : 'chaque cible'} dans <a href="/cibles${filtres.cible ? `?cle=${encodeURIComponent(filtres.cible)}` : ''}">Cibles</a>.`
+              : ''
+          }</p>
+          ${exportCsv}
+        </form>`;
+
   return page(
     'Prospects',
     `<header class="page-entete">
@@ -192,15 +214,7 @@ async function liste(url: URL, env: Env) {
           </form>`
         : ''
     }
-    ${
-      exportable
-        ? `<form class="alerte succes" method="post" action="/export">${champsCaches}
-            <p><strong>${nombre} prospects prêts.</strong> L’export ne prend que les adresses génériques, sans les désinscrits.</p>
-            <label class="case"><input type="checkbox" name="marquer" value="1" checked><span>Les passer en « En campagne »</span></label>
-            <button type="submit" class="btn petit">${icone('telecharger', 14)}Exporter pour Smartlead</button>
-          </form>`
-        : ''
-    }
+    ${exportable ? envoi : ''}
     <div class="carte">
       <form id="lot" method="post" action="/lot" class="entete-liste">
         <input type="hidden" name="retour" value="${echapper(lienFiltres(filtres, numero > 1 ? { page: String(numero) } : {}))}">
@@ -333,9 +347,9 @@ function csv(lignes: Record<string, unknown>[]) {
   return [COLONNES_SMARTLEAD.join(','), ...lignes.map((ligne) => COLONNES_SMARTLEAD.map((colonne) => champ(ligne[colonne])).join(','))].join('\n') + '\n';
 }
 
-async function exporter(requete: Request, env: Env) {
-  const donnees = await requete.formData();
-  const filtres: Filtres = {
+// Les filtres de la liste, repris par l'export et l'envoi : seulement les fiches prêtes.
+function filtresEnvoi(donnees: FormData): Filtres {
+  return {
     cible: String(donnees.get('cible') ?? ''),
     statut: 'nouveau',
     ville: String(donnees.get('ville') ?? ''),
@@ -346,10 +360,25 @@ async function exporter(requete: Request, env: Env) {
     origine: String(donnees.get('origine') ?? ''),
     verif: String(donnees.get('verif') ?? ''),
   };
+}
+
+// Seules les adresses génériques ou au nom de l'entreprise partent. Une adresse
+// désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.
+function selectionEnvoi(filtres: Filtres) {
   const { where, valeurs } = clauses(filtres);
-  // Une adresse désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.
-  const selection = `${where} AND email_statut IN ('generique', 'entreprise') AND email <> ''
-    AND email NOT IN (SELECT email FROM prospects WHERE statut = 'desinscrit' AND email <> '')`;
+  return {
+    selection: `${where} AND email_statut IN ('generique', 'entreprise') AND email <> ''
+    AND lower(email) NOT IN (SELECT lower(email) FROM prospects WHERE statut = 'desinscrit' AND email <> '')`,
+    valeurs,
+  };
+}
+
+const sourceEnvoi = (p: Pick<Prospect, 'origine'>) => (p.origine === 'sirene' ? 'le registre des entreprises' : 'votre fiche Google');
+
+async function exporter(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const filtres = filtresEnvoi(donnees);
+  const { selection, valeurs } = selectionEnvoi(filtres);
   const { results } = await env.DB.prepare(`SELECT * FROM prospects ${selection} ORDER BY vu_le DESC`)
     .bind(...valeurs)
     .all<Prospect>();
@@ -371,7 +400,7 @@ async function exporter(requete: Request, env: Env) {
       salutation: 'Bonjour,',
       recherche: p.recherche,
       constat: p.constat,
-      source: p.origine === 'sirene' ? 'le registre des entreprises' : 'votre fiche Google',
+      source: sourceEnvoi(p),
       site: p.site,
       telephone: p.telephone,
       ville: p.ville,
@@ -381,6 +410,100 @@ async function exporter(requete: Request, env: Env) {
   return new Response(corps, {
     headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${nom}"` },
   });
+}
+
+// Envoie les fiches prêtes les plus prioritaires dans la campagne Smartlead de leur
+// cible. Les nouvelles entreprises vont dans la campagne « nouvelles entreprises »,
+// et ne partent pas si la cible n'en a pas.
+async function envoyerSmartlead(requete: Request, env: Env) {
+  const donnees = await requete.formData();
+  const filtres = filtresEnvoi(donnees);
+  const retour = lienFiltres(filtres);
+  if (!smartleadActif(env)) return apres(requete, retour, 'Ajoute SMARTLEAD_API_KEY dans .dev.vars pour envoyer dans Smartlead.');
+  const voulu = Math.min(ENVOI_MAX, Math.max(1, Math.floor(Number(donnees.get('nombre'))) || 50));
+  const cibles = await chargerCibles(env);
+  const { selection, valeurs } = selectionEnvoi(filtres);
+  const { results } = await env.DB.prepare(`SELECT *, ${SCORE} AS score FROM prospects ${selection} ORDER BY score DESC, vu_le DESC`)
+    .bind(...valeurs)
+    .all<Prospect>();
+
+  const campagneDe = (p: Prospect) => (p.origine === 'sirene' ? cibles[p.cible]?.smartleadCreation : cibles[p.cible]?.smartlead) ?? '';
+  const parCampagne = new Map<string, Prospect[]>();
+  const vus = new Set<string>();
+  let sansCampagne = 0;
+  let choisies = 0;
+  for (const p of results) {
+    const campagne = campagneDe(p);
+    if (!campagne) {
+      sansCampagne += 1;
+      continue;
+    }
+    if (choisies >= voulu || vus.has(p.email.toLowerCase())) continue;
+    vus.add(p.email.toLowerCase());
+    parCampagne.set(campagne, [...(parCampagne.get(campagne) ?? []), p]);
+    choisies += 1;
+  }
+  if (!choisies) {
+    return apres(requete, retour, sansCampagne ? 'Aucune campagne Smartlead pour ces fiches : choisis-la dans Cibles.' : 'Aucune fiche prête à envoyer.');
+  }
+
+  const lead = (p: Prospect): Lead => ({
+    email: p.email,
+    first_name: '',
+    last_name: '',
+    company_name: nomLisible(p.nom),
+    website: p.site,
+    location: p.ville,
+    phone_number: p.telephone,
+    custom_fields: { salutation: 'Bonjour,', recherche: p.recherche, constat: p.constat, source: sourceEnvoi(p), ville: p.ville },
+  });
+  const noms = await campagnes(env).catch(() => []);
+  const maintenant = new Date().toISOString();
+  const requetes: D1PreparedStatement[] = [];
+  const journal = (niveau: string, message: string) =>
+    env.DB.prepare('INSERT INTO journal (le, niveau, message, recherche_id) VALUES (?, ?, ?, NULL)').bind(maintenant, niveau, message);
+  const morceaux: string[] = [];
+  let envoyes = 0;
+  let refuses = 0;
+  for (const [campagne, fiches] of parCampagne) {
+    const bilan = await envoyerLeads(env, campagne, fiches.map(lead));
+    const infos = noms.find((c) => c.id === campagne);
+    const nom = infos ? `« ${infos.nom} »` : `n°${campagne}`;
+    const partis = new Set(bilan.envoyes.map((email) => email.toLowerCase()));
+    const refus = new Set(bilan.refuses.map((email) => email.toLowerCase()));
+    for (const p of fiches) {
+      const email = p.email.toLowerCase();
+      if (partis.has(email)) {
+        requetes.push(
+          env.DB.prepare("UPDATE prospects SET statut = 'en_campagne', statut_le = ?1, contacte_le = COALESCE(contacte_le, ?1) WHERE id = ?2 AND statut = 'nouveau'").bind(maintenant, p.id),
+        );
+      } else if (refus.has(email)) {
+        // Désinscrite ou bloquée chez Smartlead : on ne la propose plus.
+        requetes.push(env.DB.prepare("UPDATE prospects SET statut = 'desinscrit', statut_le = ? WHERE lower(email) = ? AND statut NOT IN ('desinscrit', 'client')").bind(maintenant, email));
+      }
+    }
+    envoyes += partis.size;
+    refuses += refus.size;
+    const details = [bilan.deja ? `${bilan.deja} déjà dedans` : '', bilan.invalides ? `${bilan.invalides} adresses jugées invalides par Smartlead` : ''].filter(Boolean).join(', ');
+    if (partis.size) {
+      requetes.push(journal('succes', `Smartlead : ${partis.size} fiche${partis.size > 1 ? 's' : ''} envoyée${partis.size > 1 ? 's' : ''} dans la campagne ${nom}${details ? ` (${details})` : ''}.`));
+      if (infos && infos.statut.toUpperCase() !== 'ACTIVE') morceaux.push(`la campagne ${nom} est ${etatCampagne(infos.statut)} : les emails partiront quand tu la lanceras dans Smartlead`);
+    }
+    if (refus.size) requetes.push(journal('info', `Smartlead : ${refus.size} adresse${refus.size > 1 ? 's' : ''} refusée${refus.size > 1 ? 's' : ''} (désinscrite${refus.size > 1 ? 's' : ''} ou bloquée${refus.size > 1 ? 's' : ''} chez Smartlead), passée${refus.size > 1 ? 's' : ''} en « Désinscrit ».`));
+    if (bilan.erreur) {
+      requetes.push(journal('erreur', `Smartlead, campagne ${nom} : ${bilan.erreur}`));
+      morceaux.push(`envoi arrêté pour la campagne ${nom} : ${bilan.erreur}`);
+    }
+  }
+  if (requetes.length) await env.DB.batch(requetes);
+  const message = [
+    `${envoyes} fiche${envoyes > 1 ? 's' : ''} envoyée${envoyes > 1 ? 's' : ''} dans Smartlead`,
+    refuses ? `${refuses} refusée${refuses > 1 ? 's' : ''} par Smartlead (désinscrite${refuses > 1 ? 's' : ''} chez lui)` : '',
+    ...morceaux,
+  ]
+    .filter(Boolean)
+    .join(' ; ');
+  return apres(requete, retour, message);
 }
 
 async function lot(requete: Request, env: Env) {
@@ -459,6 +582,7 @@ export default {
     if (url.pathname === '/cibles' && requete.method === 'POST') return enregistrerCible(requete, env);
     if (url.pathname === '/cibles/proposer' && requete.method === 'POST') return proposerCibleFormulaire(requete, env);
     if (url.pathname === '/export' && requete.method === 'POST') return exporter(requete, env);
+    if (url.pathname === '/smartlead/envoyer' && requete.method === 'POST') return envoyerSmartlead(requete, env);
     if (url.pathname === '/lot' && requete.method === 'POST') return lot(requete, env);
     if (url.pathname === '/traiter' && requete.method === 'GET') return pageTraiter(url, env);
     if (url.pathname === '/traiter' && requete.method === 'POST') return traiter(requete, env);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CIBLES } from '../scripts/cibles.mjs';
-import { auditer, choisirConstat, choisirEmail, estGenerique, extraireEmails, natureEmail, normaliser } from '../scripts/lib.mjs';
+import { auditer, choisirConstat, choisirEmail, demandeStop, estGenerique, extraireEmails, lireCsv, natureEmail, normaliser } from '../scripts/lib.mjs';
 import { statutApresAnalyse } from '../scripts/base.mjs';
 
 test('ne garde que les adresses génériques, de préférence sur le domaine du site', () => {
@@ -68,4 +68,27 @@ test('choisit le constat selon l’ordre de la cible', () => {
 test('lit un export Apify comme un export Outscraper', () => {
   assert.equal(normaliser({ title: 'Domaine A', website: 'domaine-a.fr', city: 'Barr' }).site, 'https://domaine-a.fr');
   assert.deepEqual(normaliser({ name: 'Domaine B', site: 'https://b.fr', email_1: 'contact@b.fr' }).emails, ['contact@b.fr']);
+});
+
+test('lit l’export CSV de Smartlead, guillemets et retours à la ligne compris', () => {
+  const csv = '\uFEFFid,email,custom_fields,is_unsubscribed,reply_count\r\n1,contact@domaine-un.fr,"{""constat"":""pas de site, seulement une fiche""}",false,1\r\n2,info@b.fr,"deux\nlignes",true,0\r\n\r\n';
+  assert.deepEqual(lireCsv(csv), [
+    { id: '1', email: 'contact@domaine-un.fr', custom_fields: '{"constat":"pas de site, seulement une fiche"}', is_unsubscribed: 'false', reply_count: '1' },
+    { id: '2', email: 'info@b.fr', custom_fields: 'deux\nlignes', is_unsubscribed: 'true', reply_count: '0' },
+  ]);
+  assert.deepEqual(lireCsv(''), []);
+});
+
+test('reconnaît une réponse « stop », pas une réponse qui cite notre pied de page', () => {
+  assert.equal(demandeStop('Stop'), true);
+  assert.equal(demandeStop('STOP merci'), true);
+  assert.equal(demandeStop('Merci de ne plus me contacter.'), true);
+  assert.equal(demandeStop('Ne plus m’envoyer de mails svp'), true);
+  assert.equal(demandeStop('Bonjour, je souhaite être désinscrit de votre liste.'), true);
+  assert.equal(demandeStop('stop<br><br>Le lun. 3 nov. 2026 à 10:00, Bas &lt;bas@cestbienbeau.fr&gt; a écrit :<br>&gt; Bonjour'), true);
+  assert.equal(demandeStop('Bonjour, oui volontiers pour la maquette !\n\nLe lun. 3 nov. 2026, Bas a écrit :\n> Pour ne plus recevoir de message de ma part, répondez « stop ».'), false);
+  assert.equal(demandeStop('Oui avec plaisir\nPour ne plus recevoir de message de ma part, répondez « stop ».'), false);
+  assert.equal(demandeStop('<div>D’accord pour la maquette</div><blockquote>répondez « stop »</blockquote>'), false);
+  assert.equal(demandeStop('Bonjour, on peut en parler ? Le stop-and-go du chantier me prend du temps, mais rappelez-moi la semaine prochaine pour voir ce que vous proposez.'), false);
+  assert.equal(demandeStop(''), false);
 });

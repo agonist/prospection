@@ -4,6 +4,7 @@
 import { CIBLES, CONSTATS, MODELE_CREATION, MODELE_EMAIL, VERSION_CIBLES, VILLES } from '../scripts/cibles.mjs';
 import { claudeActif, proposerCible, type Proposition } from './claude';
 import { echapper, icone, nomLisible, page } from './html';
+import { type Campagne, campagnes, etatCampagne, smartleadActif } from './smartlead';
 
 export type Cible = {
   cle: string;
@@ -21,6 +22,9 @@ export type Cible = {
   pilote?: number;
   piloteSirene?: boolean;
   departements?: string[];
+  // Identifiants des campagnes Smartlead : fiches Google Maps, nouvelles entreprises.
+  smartlead?: string;
+  smartleadCreation?: string;
 };
 
 type Ligne = {
@@ -36,6 +40,8 @@ type Ligne = {
   pilote: number;
   pilote_sirene: number;
   departements: string;
+  smartlead: string;
+  smartlead_creation: string;
 };
 
 export const DEPARTEMENTS_DEFAUT = ['67', '68'];
@@ -61,16 +67,19 @@ function versCible(ligne: Ligne): Cible {
     pilote: Number(ligne.pilote ?? 0),
     piloteSirene: Boolean(ligne.pilote_sirene),
     departements: JSON.parse(ligne.departements || '[]'),
+    smartlead: ligne.smartlead ?? '',
+    smartleadCreation: ligne.smartlead_creation ?? '',
   };
 }
 
 function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
   return env.DB.prepare(
-    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le, naf, attentes, pilote, pilote_sirene, departements)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO cibles (cle, nom, recherche, metiers, communes, exclure, constats, modele, modifie_le, naf, attentes, pilote, pilote_sirene, departements, smartlead, smartlead_creation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (cle) DO UPDATE SET nom = excluded.nom, recherche = excluded.recherche, metiers = excluded.metiers, communes = excluded.communes, naf = excluded.naf,
         exclure = excluded.exclure, constats = excluded.constats, modele = excluded.modele, modifie_le = excluded.modifie_le, attentes = excluded.attentes,
-        pilote = excluded.pilote, pilote_sirene = excluded.pilote_sirene, departements = excluded.departements`,
+        pilote = excluded.pilote, pilote_sirene = excluded.pilote_sirene, departements = excluded.departements,
+        smartlead = excluded.smartlead, smartlead_creation = excluded.smartlead_creation`,
   ).bind(
     cle,
     cible.nom,
@@ -86,6 +95,8 @@ function insertion(env: Env, cle: string, cible: Omit<Cible, 'cle'>) {
     cible.pilote ?? 0,
     cible.piloteSirene ? 1 : 0,
     JSON.stringify(cible.departements?.length ? cible.departements : DEPARTEMENTS_DEFAUT),
+    cible.smartlead ?? '',
+    cible.smartleadCreation ?? '',
   );
 }
 
@@ -220,6 +231,30 @@ export async function pageCibles(url: URL, env: Env, erreur = '', proposition?: 
     })
     .join('');
 
+  // Les campagnes Smartlead, lues seulement quand le formulaire s'affiche.
+  let listeCampagnes: Campagne[] | null = null;
+  let erreurCampagnes = '';
+  if ((choisie || nouvelle) && smartleadActif(env)) {
+    listeCampagnes = await campagnes(env).catch((e: unknown) => {
+      erreurCampagnes = String(e instanceof Error ? e.message : e).slice(0, 200);
+      return null;
+    });
+  }
+  const choixCampagne = (nom: string, valeur: string) =>
+    listeCampagnes
+      ? `<select id="${nom}" name="${nom}"><option value="">Aucune</option>${listeCampagnes
+          .map((c) => `<option value="${echapper(c.id)}" ${c.id === valeur ? 'selected' : ''}>${echapper(c.nom)} (${echapper(etatCampagne(c.statut))})</option>`)
+          .join('')}${valeur && !listeCampagnes.some((c) => c.id === valeur) ? `<option value="${echapper(valeur)}" selected>Campagne n°${echapper(valeur)}</option>` : ''}</select>`
+      : `<input id="${nom}" type="text" name="${nom}" value="${echapper(valeur)}" placeholder="Numéro de la campagne" inputmode="numeric">`;
+  const champsSmartlead = smartleadActif(env)
+    ? `<div class="ligne">
+          <div class="champ"><label for="smartlead">Campagne Smartlead</label>${choixCampagne('smartlead', cible.smartlead ?? '')}
+            <span class="aide">${erreurCampagnes ? `Liste indisponible (${echapper(erreurCampagnes)}) : colle le numéro de la campagne, visible dans son adresse sur Smartlead. ` : ''}Les fiches Google Maps de cette cible y partent. Sa séquence peut utiliser {{company_name}}, {{recherche}}, {{constat}} et {{source}}.</span></div>
+          <div class="champ"><label for="smartlead_creation">Campagne pour les nouvelles entreprises</label>${choixCampagne('smartlead_creation', cible.smartleadCreation ?? '')}
+            <span class="aide">Les entreprises du registre Sirene, qui n’ont pas de fiche Google à citer. Sans campagne, elles ne partent pas.</span></div>
+        </div>`
+    : '';
+
   const formulaire =
     choisie || nouvelle
       ? `<form method="post" action="/cibles" class="carte" style="margin-top: 16px">
@@ -245,6 +280,7 @@ export async function pageCibles(url: URL, env: Env, erreur = '', proposition?: 
           <div class="champ"><label for="departements-cible">Départements des nouvelles entreprises</label><input id="departements-cible" type="text" name="departements" value="${echapper((cible.departements?.length ? cible.departements : DEPARTEMENTS_DEFAUT).join(', '))}">
             <span class="aide">Séparés par des virgules. Servent au pilote automatique et au formulaire des nouvelles entreprises.</span></div>
         </div>
+        ${champsSmartlead}
         <div class="champ"><label for="modele">Email écrit à la main</label>
           <textarea id="modele" name="modele" rows="11">${echapper(cible.modele || MODELE_EMAIL)}</textarea>
           <span class="aide">Pour les adresses nominatives, qui ne partent pas dans Smartlead. Première ligne : l’objet. {{nom}}, {{recherche}}, {{constat}} et {{ville}} sont remplacés.</span></div>
@@ -300,6 +336,8 @@ export type ChampsCible = {
   naf?: string[];
   attentes?: string;
   departements?: string[];
+  smartlead?: string;
+  smartleadCreation?: string;
 };
 
 // Crée ou modifie une cible, depuis l'admin ou depuis Claude. Les réglages du
@@ -340,6 +378,8 @@ export async function sauverCible(env: Env, champs: ChampsCible): Promise<{ cle:
     departements: champs.departements ?? actuelle?.departements ?? DEPARTEMENTS_DEFAUT,
     pilote: actuelle?.pilote ?? 0,
     piloteSirene: actuelle?.piloteSirene ?? false,
+    smartlead: champs.smartlead ?? actuelle?.smartlead ?? '',
+    smartleadCreation: champs.smartleadCreation ?? actuelle?.smartleadCreation ?? '',
   }).run();
   return { cle };
 }
@@ -366,6 +406,9 @@ export async function enregistrerCible(requete: Request, env: Env) {
       .split(/[\s,;]+/)
       .map((d) => d.trim().toUpperCase())
       .filter(Boolean),
+    // Absents du formulaire quand Smartlead n'est pas branché : on garde alors la valeur.
+    smartlead: donnees.has('smartlead') ? String(donnees.get('smartlead')).trim() : undefined,
+    smartleadCreation: donnees.has('smartlead_creation') ? String(donnees.get('smartlead_creation')).trim() : undefined,
   });
   if ('erreur' in resultat) return pageCibles(new URL(requete.url), env, resultat.erreur);
   return Response.redirect(new URL(`/cibles?cle=${encodeURIComponent(resultat.cle)}&message=${encodeURIComponent(`Cible « ${nom} » enregistrée`)}`, requete.url).toString(), 303);

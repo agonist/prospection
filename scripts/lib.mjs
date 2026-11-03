@@ -340,3 +340,81 @@ export function cible(nom) {
   if (!trouvee) throw new Error(`Cible inconnue : ${nom}. Choix possibles : ${Object.keys(CIBLES).join(', ')}`);
   return trouvee;
 }
+
+// Lit un CSV (guillemets doubles, virgules et retours à la ligne dans les champs).
+// Rend une ligne d'objets, clés tirées de l'en-tête.
+export function lireCsv(texte) {
+  const lignes = [];
+  let ligne = [];
+  let champ = '';
+  let entreGuillemets = false;
+  const source = String(texte ?? '').replace(/^﻿/, '');
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (entreGuillemets) {
+      if (c === '"' && source[i + 1] === '"') {
+        champ += '"';
+        i++;
+      } else if (c === '"') entreGuillemets = false;
+      else champ += c;
+    } else if (c === '"') entreGuillemets = true;
+    else if (c === ',') {
+      ligne.push(champ);
+      champ = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && source[i + 1] === '\n') i++;
+      ligne.push(champ);
+      lignes.push(ligne);
+      ligne = [];
+      champ = '';
+    } else champ += c;
+  }
+  if (champ || ligne.length) {
+    ligne.push(champ);
+    lignes.push(ligne);
+  }
+  const [entete, ...donnees] = lignes.filter((l) => l.some((valeur) => valeur.trim()));
+  if (!entete) return [];
+  const cles = entete.map((cle) => cle.trim());
+  return donnees.map((valeurs) => Object.fromEntries(cles.map((cle, index) => [cle, valeurs[index] ?? ''])));
+}
+
+// La réponse d'un prospect, sans la citation de notre email ni la signature.
+export function texteReponse(corps) {
+  const texte = String(corps ?? '')
+    .replace(/<(br|\/p|\/div)[^>]*>/gi, '\n')
+    .replace(/<blockquote[\s\S]*$/i, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;|&rsquo;/g, '’');
+  const garde = [];
+  for (const ligne of texte.split('\n')) {
+    // La citation commence par « > », « Le … a écrit : », « On … wrote: » ou « De : ».
+    if (
+      /^\s*>/.test(ligne) ||
+      /^\s*(le |on ).{0,200}(a écrit|wrote)\s*:?\s*$/i.test(ligne) ||
+      /^\s*(-{2,}\s*)?(de|from|envoyé|sent)\s*:/i.test(ligne) ||
+      /^\s*-{2,}\s*(message d'origine|original message)/i.test(ligne)
+    ) break;
+    garde.push(ligne);
+  }
+  return garde.join('\n').replace(/[ \t]+/g, ' ').trim();
+}
+
+// true quand la réponse demande de ne plus écrire : « stop », « désinscrire »,
+// « ne plus me contacter »… Une réponse longue qui dit « stop » en passant ne compte pas.
+export function demandeStop(corps) {
+  const texte = texteReponse(corps)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    // Notre propre pied de page, s'il est cité sans marque de citation.
+    .replace(/pour ne plus recevoir de message de ma part[^\n]*/g, '');
+  if (!texte.trim()) return false;
+  if (/desinscri|desabonn|unsubscribe|ne (plus|pas) (me |m'|nous )?(contacter|recontacter|ecrire|solliciter|deranger|envoyer)|ne plus recevoir|arrete[rz]? de (me |m'|nous )|retirez[- ](moi|nous|notre|mon)|supprime[rz]? (moi|nous|notre adresse|mon adresse|nos coordonnees|mes coordonnees)|pas de (demarchage|prospection)/.test(texte)) return true;
+  return texte.trim().length <= 80 && /\bstop\b/.test(texte);
+}

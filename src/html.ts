@@ -264,6 +264,7 @@ h1 + .etiquette-recente { margin: 6px 0 0; }
 .alerte.attention { border-color: color-mix(in srgb, var(--attention) 35%, var(--bord)); background: color-mix(in srgb, var(--attention) 6%, var(--carte)); }
 .alerte.succes { border-color: color-mix(in srgb, var(--succes) 35%, var(--bord)); background: color-mix(in srgb, var(--succes) 6%, var(--carte)); }
 .alerte.succes p strong { color: var(--succes); }
+.envoi-nombre { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .proposer-cible input[type=text] { flex: 1 1 220px; width: auto; max-width: 320px; }
 .proposer-cible .btn { flex: none; }
 .erreur { color: var(--danger); }

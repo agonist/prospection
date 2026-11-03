@@ -5,6 +5,9 @@ APIFY_TOKEN=
 # par Hubertino (environ 0,40 $ les 1 000 fiches, email du site compris) au lieu d'Apify.
 # Les nouvelles entreprises (registre Sirene) passent toujours par Apify.
 HUBERTINO_API_KEY=
+# Facultatif : clé API Smartlead (Smartlead → Settings → API Key). Si elle est là, les fiches prêtes
+# partent dans la campagne de leur cible en un clic, et les réponses et désinscriptions reviennent seules.
+SMARTLEAD_API_KEY=
 # Clé INSEE facultative (gratuite sur portail-api.insee.fr) pour les nouvelles entreprises du registre Sirene.
 INSEE_API_KEY=
 # Clé API Anthropic, pour que Claude juge chaque site : console.anthropic.com → API Keys.

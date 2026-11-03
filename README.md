@@ -143,23 +143,36 @@ Les garde-fous sont dans le serveur, pas seulement dans les consignes données �
 
 ## Envoyer dans Smartlead
 
-1. Dans l'admin, choisir la cible, puis l'onglet **Prêt à contacter**.
-2. Ouvrir chaque site quelques secondes pour vérifier que le constat est vrai. En cas de doute, passer la fiche en « À vérifier ».
-3. **Exporter pour Smartlead** télécharge le CSV et passe les fiches en « En campagne ». Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche.
-4. Dans Smartlead : importer le CSV, faire correspondre `recherche`, `constat` et `source` à des variables personnalisées, puis lancer la vérification des emails.
+Avec la clé API Smartlead dans `.dev.vars` (`SMARTLEAD_API_KEY=…`, à prendre dans Smartlead → Settings → API Key), les fiches partent dans Smartlead en un clic et les réponses reviennent seules.
+
+1. Dans Smartlead, créer la campagne de la cible avec sa séquence. Elle peut utiliser `{{company_name}}`, `{{recherche}}`, `{{constat}}`, `{{source}}` et `{{ville}}`. Pour les nouvelles entreprises (registre Sirene), qui n'ont pas de fiche Google à citer, créer une deuxième campagne avec l'angle « félicitations pour le lancement ».
+2. Dans l'admin, **Cibles** → la cible : choisir la campagne Smartlead, et celle des nouvelles entreprises. Sans campagne pour les nouvelles entreprises, elles ne partent pas.
+3. Onglet **Prêt à contacter** : ouvrir chaque site quelques secondes pour vérifier que le constat est vrai. En cas de doute, passer la fiche en « À vérifier ».
+4. **Envoyer dans Smartlead** ajoute les fiches les plus prioritaires à la campagne (50 par défaut, 400 au plus par clic) et les passe en « En campagne ». Rien ne part sans ce clic. Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche, et Smartlead écarte aussi ses propres désinscrits : l'outil les passe alors en « Désinscrit ».
+5. Lancer la campagne dans Smartlead si elle est encore en brouillon.
+
+Toutes les 15 minutes, la tâche lit les campagnes branchées sur une cible :
+
+- une fiche désinscrite dans Smartlead passe en **Désinscrit**, avec toutes les fiches de la même adresse ;
+- une réponse qui demande d'arrêter (« stop », « ne plus me contacter », « désinscrire »…) passe la fiche en **Désinscrit** ;
+- toute autre réponse passe la fiche en **A répondu**. À toi de lire la réponse dans Smartlead et de la suivre dans l'admin.
+
+Seules les fiches encore « En campagne » changent pour une réponse : un statut posé à la main reste. Le journal de la page Recherches note chaque changement.
+
+Sans clé Smartlead, ou sans campagne choisie, **Exporter en CSV** télécharge les fiches et les passe en « En campagne ». Dans Smartlead : importer le CSV, faire correspondre `recherche`, `constat` et `source` à des variables personnalisées, puis lancer la vérification des emails.
 
 **Traiter** (en haut des onglets Prêt à contacter, À écrire, Email à chercher, À vérifier et Sans email) montre une fiche à la fois, la plus prioritaire d'abord, avec l'aperçu du site et les actions sur les touches 1 à 5. La priorité (sur 100) favorise les entreprises bien notées et avec beaucoup d'avis dont la présence en ligne est faible. Dans la liste, cocher des fiches permet de changer leur statut d'un coup.
 
 Dans les onglets « À écrire », « Email à chercher » et « À vérifier », la raison de chaque fiche est affichée, avec un filtre par raison. **Réanalyser** repasse les fiches de l'onglet à l'analyse, par exemple après un changement des règles.
 
-Quand quelqu'un répond, mettre à jour son statut dans l'admin, et noter ce qui s'est dit.
+Quand une conversation avance (maquette envoyée, client, pas intéressé), mettre à jour le statut dans l'admin et noter ce qui s'est dit.
 
 ## RGPD et CNIL
 
 Les artisans et praticiens en nom propre sont des personnes physiques : leurs données sont des données personnelles.
 
 - Smartlead ne reçoit que les adresses **génériques** (contact@, info@…) et celles **au nom de l'entreprise** (menuiserie.dupont@…, domaine.muller@…), qui ne désignent pas une personne. Une adresse qui contient un prénom (claire.martin@, c.martin@) est nominative : elle passe en « À écrire » et ne part jamais dans Smartlead.
-- Chaque email propose de se désinscrire. Une demande de désinscription passe la fiche en **Désinscrit**, et elle y reste.
+- Chaque email propose de se désinscrire. Une demande de désinscription passe la fiche en **Désinscrit**, et elle y reste. Avec la clé Smartlead, une désinscription dans Smartlead ou une réponse « stop » le fait toute seule ; sinon, le faire à la main.
 - Un prospect sans nouvelles depuis 3 ans doit être effacé. L'admin affiche un bandeau quand il y en a, avec un bouton pour les effacer. Les clients, les désinscrits et les échanges en cours ne sont jamais effacés.
 
 ## Développement

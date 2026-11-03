@@ -1,5 +1,6 @@
 // Tâche planifiée, toutes les minutes : suit les extractions (Apify, Hubertino), importe leurs
-// fiches par petits lots, puis analyse les sites des prospects importés.
+// fiches par petits lots, puis analyse les sites des prospects importés. Toutes les
+// 15 minutes, rapatrie aussi les réponses et les désinscriptions de Smartlead.
 // Les lots restent petits pour tenir dans les limites d'une exécution de Worker
 // (50 requêtes D1 et 50 requêtes sortantes sur le plan gratuit).
 import { STATUTS_AUTOMATIQUES, identifiant, statutApresAnalyse } from '../scripts/base.mjs';
@@ -13,6 +14,7 @@ import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot, reprendrePropositions } from './enrichir';
 import { nomLisible } from './html';
 import { piloter } from './pilote';
+import { synchroniser } from './smartlead';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -296,6 +298,11 @@ export async function tache(env: Env) {
   ]);
 
   const cibles = await chargerCibles(env);
+  try {
+    await synchroniser(env, cibles, (niveau, message) => noter(env, niveau, message));
+  } catch (erreur) {
+    await noter(env, 'erreur', `Smartlead : ${String(erreur instanceof Error ? erreur.message : erreur).slice(0, 300)}`).run();
+  }
   const recherche = await env.DB.prepare("SELECT * FROM recherches WHERE statut IN ('import', 'en_cours') ORDER BY statut = 'en_cours', id LIMIT 1").first<Recherche>();
   if (recherche) {
     try {

@@ -12,7 +12,7 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [], hubertino: [], etatHubertino: 0 };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [], hubertino: [], etatHubertino: 0, smartlead: [] };
   // Hubertino : une fiche avec email, une fermée, une dont la visite du site a échoué.
   const lignesHubertino = [
     { _status: 'enriched', query: 'photographe Barr, Alsace, France', name: 'Studio Lumière', category: 'Photographe', phone: '03 88 00 00 01', email: 'contact@studio-lumiere.fr', website: null, address: '1 rue du Marché, 67140 Barr', city: 'Barr', rating: 4.8, reviews: 12, business_status: 'OPERATIONAL', location_link: 'https://www.google.com/maps/place/?q=place_id:ChIJ1', place_id: 'ChIJ1' },
@@ -67,6 +67,47 @@ function demarrerFauxApify(fiches) {
       const limite = Number(url.searchParams.get('limit'));
       const lignes = appels.etatHubertino <= 1 ? [] : lignesHubertino;
       return json({ status: 'done', partial: false, count: lignes.length, updated: 1, coverage: null, columns: [], rows: lignes.slice(debut, debut + limite), offset: debut, limit: limite, hasMore: debut + limite < lignes.length });
+    }
+    // Faux Smartlead : deux campagnes utilisables et une archivée.
+    if (url.pathname.startsWith('/smartlead/')) {
+      const chemin = url.pathname.slice('/smartlead'.length);
+      let corps = '';
+      req.on('data', (morceau) => (corps += morceau));
+      req.on('end', () => {
+        appels.smartlead.push({ methode: req.method, chemin, cle: url.searchParams.get('api_key'), corps: corps ? JSON.parse(corps) : null });
+        if (chemin === '/campaigns/') {
+          return json([
+            { id: 101, name: 'Vins, fiche Google', status: 'DRAFTED' },
+            { id: 102, name: 'Vins, créations', status: 'ACTIVE' },
+            { id: 9, name: 'Ancienne', status: 'ARCHIVED' },
+          ]);
+        }
+        if (req.method === 'POST' && chemin === '/campaigns/101/leads') {
+          const { lead_list } = JSON.parse(corps);
+          // info@domaine-refus.fr est dans la liste des désinscrits de Smartlead.
+          return json({ ok: true, upload_count: lead_list.length - 1, total_leads: lead_list.length, already_added_to_campaign: 0, invalid_email_count: 0, unsubscribed_leads: ['info@domaine-refus.fr'] });
+        }
+        if (chemin === '/campaigns/101/leads-export') {
+          res.writeHead(200, { 'content-type': 'text/csv' });
+          return res.end(
+            [
+              'id,campaign_lead_map_id,status,created_at,first_name,last_name,email,phone_number,company_name,website,location,custom_fields,linkedin_profile,company_url,is_unsubscribed,last_email_sequence_sent,is_interested,open_count,click_count,reply_count',
+              '11,1,INPROGRESS,2026-11-03,,,contact@domaine-un.fr,,Domaine Un,,Barr,"{""constat"":""x, y""}",,,false,1,true,0,0,1',
+              '12,2,COMPLETED,2026-11-03,,,Contact@Domaine-Deux.fr,,Domaine Deux,,Barr,{},,,false,1,false,0,0,1',
+              '13,3,INPROGRESS,2026-11-03,,,contact@domaine-trois.fr,,Domaine Trois,,Barr,{},,,true,1,false,0,0,0',
+              '14,4,INPROGRESS,2026-11-03,,,contact@domaine-quatre.fr,,Domaine Quatre,,Barr,{},,,false,1,false,0,0,0',
+            ].join('\r\n'),
+          );
+        }
+        const historique = chemin.match(/^\/campaigns\/101\/leads\/(\d+)\/message-history$/);
+        if (historique) {
+          const reponse = historique[1] === '12' ? 'Stop.<br><br>Le lun. 3 nov. 2026, Bas a écrit :<br>&gt; Bonjour' : 'Bonjour, oui volontiers pour la maquette !<br>Le lun. 3 nov. 2026, Bas a écrit :<br>&gt; Pour ne plus recevoir de message de ma part, répondez « stop ».';
+          return json({ history: [{ type: 'SENT', email_body: '<p>Bonjour,</p>' }, { type: 'REPLY', email_body: reponse }], from: 'bas@cestbienbeau.fr', to: 'x' });
+        }
+        res.writeHead(404);
+        res.end();
+      });
+      return;
     }
     if (url.pathname === '/v2/actor-runs/run2') return json({ data: { status: 'SUCCEEDED' } });
     if (url.pathname === '/v2/datasets/ds2') return json({ data: { itemCount: creees.length } });
@@ -665,6 +706,109 @@ test('avec une clé Hubertino, les recherches Google Maps passent par Hubertino'
     });
     assert.match(await rejouee.text(), /ont toutes été faites il y a moins de 6 mois/);
     assert.equal(faux.appels.hubertino.length, 1);
+  } finally {
+    process.kill(-worker.pid);
+    faux.serveur.close();
+  }
+});
+
+test('avec une clé Smartlead, les fiches partent dans la campagne de la cible et les réponses reviennent', { timeout: 120_000 }, async () => {
+  const fiche = (id, nom, email, avis) => ({ placeId: id, title: nom, city: 'Barr', searchString: 'domaine viticole Barr', emails: [email], ...(avis ? { reviewsCount: avis } : {}) });
+  const faux = await demarrerFauxApify([
+    fiche('S1', 'Domaine Un', 'contact@domaine-un.fr', 20),
+    fiche('S2', 'Domaine Deux', 'contact@domaine-deux.fr', 20),
+    fiche('S3', 'Domaine Trois', 'contact@domaine-trois.fr', 20),
+    fiche('S4', 'Domaine Quatre', 'contact@domaine-quatre.fr', 20),
+    fiche('S5', 'Domaine Refus', 'info@domaine-refus.fr', 20),
+    fiche('S6', 'Domaine Six', 'claire.martin@gmail.com', 20),
+    fiche('S7', 'Domaine Sept', 'contact@domaine-sept.fr', 0),
+  ]);
+  const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
+  const vars = join(persistance, '.dev.vars');
+  writeFileSync(
+    vars,
+    `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nSMARTLEAD_API_KEY=sl_test\nSMARTLEAD_API=http://127.0.0.1:${faux.port}/smartlead/\n`,
+  );
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  const port = PORT_WORKER + 4;
+  const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
+    cwd: racine,
+    stdio: 'ignore',
+    detached: true,
+  });
+  try {
+    const admin = `http://127.0.0.1:${port}`;
+    await attendre(admin);
+    const passage = () => fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
+    await fetch(`${admin}/recherches`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', metiers: 'domaine viticole', communes: 'Barr', max: '20' }), redirect: 'manual' });
+    await passage(); // Apify en cours
+    await passage(); // import
+    await passage(); // analyse
+    const statut = async (id) => (await (await fetch(`${admin}/p/${id}`)).text()).match(/class="badge badge-([a-z_]+)"/)[1];
+    assert.equal(await statut('S1'), 'nouveau');
+    assert.equal(await statut('S6'), 'a_ecrire');
+    // Aucune synchronisation tant qu'aucune cible n'a de campagne.
+    assert.equal(faux.appels.smartlead.length, 0);
+
+    // Sans campagne choisie : l'export CSV reste, avec un lien vers la cible.
+    const avant = await (await fetch(`${admin}/prospects?cible=vin&statut=nouveau`)).text();
+    assert.match(avant, /choisis la campagne Smartlead de cette cible dans <a href="\/cibles\?cle=vin">Cibles<\/a>/);
+    assert.doesNotMatch(avant, /action="\/smartlead\/envoyer"/);
+
+    // La cible propose les campagnes de Smartlead, sans les archivées.
+    const formulaire = await (await fetch(`${admin}/cibles?cle=vin`)).text();
+    assert.match(formulaire, /<select id="smartlead" name="smartlead"><option value="">Aucune<\/option><option value="101" >Vins, fiche Google \(en brouillon\)<\/option>/);
+    assert.doesNotMatch(formulaire, /Ancienne/);
+    assert.equal(faux.appels.smartlead[0].cle, 'sl_test');
+    await fetch(`${admin}/cibles`, {
+      method: 'POST',
+      body: new URLSearchParams({ cle: 'vin', nom: 'Domaines viticoles', metiers: 'domaine viticole', communes: 'Barr', smartlead: '101', smartlead_creation: '' }),
+      redirect: 'manual',
+    });
+    assert.match(await (await fetch(`${admin}/cibles?cle=vin`)).text(), /<option value="101" selected>/);
+
+    const liste = await (await fetch(`${admin}/prospects?cible=vin&statut=nouveau`)).text();
+    assert.match(liste, /action="\/smartlead\/envoyer"/);
+    assert.match(liste, /name="nombre" value="6"/);
+
+    // Les 5 plus prioritaires partent ; Domaine Sept (sans avis) attend, l'adresse nominative ne part jamais.
+    const envoi = await fetch(`${admin}/smartlead/envoyer`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', statut: 'nouveau', nombre: '5' }), redirect: 'manual' });
+    assert.equal(envoi.status, 303);
+    const message = decodeURIComponent(new URL(envoi.headers.get('location')).searchParams.get('message'));
+    assert.equal(message, '4 fiches envoyées dans Smartlead ; 1 refusée par Smartlead (désinscrite chez lui) ; la campagne « Vins, fiche Google » est en brouillon : les emails partiront quand tu la lanceras dans Smartlead');
+    const ajout = faux.appels.smartlead.find((a) => a.methode === 'POST' && a.chemin === '/campaigns/101/leads');
+    assert.equal(ajout.cle, 'sl_test');
+    assert.deepEqual(ajout.corps.lead_list.map((l) => l.email).sort(), ['contact@domaine-deux.fr', 'contact@domaine-quatre.fr', 'contact@domaine-trois.fr', 'contact@domaine-un.fr', 'info@domaine-refus.fr']);
+    const un = ajout.corps.lead_list.find((l) => l.email === 'contact@domaine-un.fr');
+    assert.equal(un.company_name, 'Domaine Un');
+    assert.deepEqual(un.custom_fields, { salutation: 'Bonjour,', recherche: 'domaine viticole Barr', constat: "vous n'avez pas encore de site, seulement une fiche Google", source: 'votre fiche Google', ville: 'Barr' });
+    assert.equal(ajout.corps.settings.ignore_unsubscribe_list, false);
+    assert.equal(await statut('S1'), 'en_campagne');
+    assert.equal(await statut('S5'), 'desinscrit');
+    assert.equal(await statut('S7'), 'nouveau');
+    assert.equal(await statut('S6'), 'a_ecrire');
+
+    // La synchronisation : une réponse, un « stop », une désinscription, un silence.
+    await passage();
+    assert.equal(await statut('S1'), 'a_repondu');
+    assert.equal(await statut('S2'), 'desinscrit');
+    assert.equal(await statut('S3'), 'desinscrit');
+    assert.equal(await statut('S4'), 'en_campagne');
+    const suivi = await (await fetch(`${admin}/recherches`)).text();
+    assert.match(suivi, /Domaine Un a répondu dans Smartlead : passé en « A répondu »/);
+    assert.match(suivi, /Domaine Deux a répondu « stop » : passé en « Désinscrit »/);
+    assert.match(suivi, /Domaine Trois : désinscrit dans Smartlead/);
+    assert.match(suivi, /Smartlead : 4 fiches envoyées dans la campagne « Vins, fiche Google »/);
+    // Les réponses déjà lues ne sont pas relues, et la synchronisation attend 15 minutes.
+    const lectures = faux.appels.smartlead.filter((a) => a.chemin.endsWith('/message-history')).length;
+    assert.equal(lectures, 2);
+    await passage();
+    assert.equal(faux.appels.smartlead.filter((a) => a.chemin.endsWith('/leads-export')).length, 1);
+
+    // L'export CSV ne reprend ni les fiches envoyées ni les désinscrits.
+    const csv = await (await fetch(`${admin}/export`, { method: 'POST', body: new URLSearchParams({ cible: 'vin' }) })).text();
+    assert.equal(csv.trim().split('\n').length, 2);
+    assert.match(csv, /^contact@domaine-sept\.fr,/m);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();
