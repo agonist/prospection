@@ -10,7 +10,7 @@ export const CONSTATS = {
   pasMobile: "votre site ne s'affiche pas en entier sur téléphone",
   pasDeBoutique: 'on ne peut pas commander vos vins sur votre site',
   pasDeDegustation: 'on ne peut pas réserver une dégustation depuis votre site',
-  pasAllemand: "votre site n'existe qu'en français, alors que beaucoup de vos visiteurs viennent d'Allemagne",
+  pasAllemand: "votre site n'a pas de version en allemand, alors que beaucoup de vos visiteurs viennent d'Allemagne",
   pasDeRendezVous: 'on ne peut pas prendre rendez-vous depuis votre site',
   pasDeTarifs: 'vos tarifs ne sont pas indiqués sur votre site',
   pasDeDevis: 'on ne peut pas demander un devis depuis votre site',
