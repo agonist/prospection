@@ -28,12 +28,12 @@ Bonjour,
 
 En cherchant « {{recherche}} » sur Google, je suis tombé sur votre fiche.
 
-Je m'appelle Bas et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
+Je m'appelle Bastien et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
 
 Sans engagement, et si ce n'est pas le moment, aucun souci.
 
 Belle journée,
-Bas`;
+Bastien`;
 
 // Entreprises tout juste créées (registre Sirene) : elles n'ont souvent ni site ni
 // fiche Google, d'où un autre angle que « je suis tombé sur votre fiche ».
@@ -44,12 +44,12 @@ Bonjour,
 
 J'ai vu passer la création de {{nom}} à {{ville}}, félicitations !
 
-Je m'appelle Bas et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Les premiers mois, un site simple aide à se faire connaître. Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
+Je m'appelle Bastien et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Les premiers mois, un site simple aide à se faire connaître. Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
 
 Sans engagement, et si ce n'est pas le moment, aucun souci.
 
 Belle journée,
-Bas`;
+Bastien`;
 
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer

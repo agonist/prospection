@@ -235,7 +235,7 @@ Rends :
 - exclure : 3 à 10 mots en minuscules qui, dans le nom ou la catégorie Google d'une fiche, signalent une chaîne, une franchise, une enseigne nationale ou une autre activité à écarter.
 - attentes : ce qu'un bon site doit avoir dans ce métier pour ses clients, en une ou deux phrases (prise de rendez-vous, carte et prix, photos de réalisations…). Elles serviront à juger les sites de ce métier.
 - constats : les constats à tester sur leurs sites, du plus important au moins important, pris dans la liste fournie.
-- modele : l'email écrit à la main pour les adresses nominatives, adapté au métier, sur le modèle fourni : première ligne l'objet, puis le corps, au vouvoiement, court et concret, signé « Bas ». Garde {{nom}} et {{recherche}} ; ne cite pas {{constat}}, et n'affirme rien sur le site du prospect.`;
+- modele : l'email écrit à la main pour les adresses nominatives, adapté au métier, sur le modèle fourni : première ligne l'objet, puis le corps, au vouvoiement, court et concret, signé « Bastien ». Garde {{nom}} et {{recherche}} ; ne cite pas {{constat}}, et n'affirme rien sur le site du prospect.`;
 
 export async function proposerCible(env: Env, secteur: string): Promise<Proposition | null> {
   const constats = Object.entries(CONSTATS)
