@@ -164,7 +164,7 @@ export async function pageTraiter(url: URL, env: Env) {
           <p class="consigne">${icone('activite', 14)}${p.statut === 'a_enrichir' && !claude ? SANS_CLAUDE : (CONSIGNES[p.statut] ?? '')}</p>
           ${p.raison && p.statut !== 'a_enrichir' ? `<div class="alerte attention"><p>${echapper(p.raison)}</p></div>` : ''}
           <div class="actions-traiter">${boutons}</div>
-          ${p.constat ? `<div><span class="discret">J’ai remarqué que…</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
+          ${p.constat ? `<div><span class="discret">Ce que l’analyse a vu (à vérifier)</span><p class="constat">${echapper(p.constat)}</p></div>` : ''}
           ${avisDetaille(p)}
           <dl>
             ${ligne('Email', p.email ? `<strong>${echapper(p.email)}</strong> ${nonVerifiee(p)} <span class="discret">${echapper(NATURES[p.email_statut] ?? p.email_statut)}${p.email_source ? ` · ${sourceLien(p.email_source)}` : ''}</span>` : '<span class="discret">aucun</span>')}

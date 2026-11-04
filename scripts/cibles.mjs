@@ -21,28 +21,34 @@ export const CONSTATS = {
 // Email écrit à la main aux adresses nominatives (pas de Smartlead pour elles).
 // La première ligne est l'objet. {{nom}}, {{recherche}}, {{constat}} et {{ville}}
 // sont remplacés par les données du prospect. Modifiable par cible dans l'admin.
-export const MODELE_EMAIL = `{{nom}}, une remarque sur votre présence en ligne
+// Le modèle ne cite pas le constat : les règles qui le trouvent se trompent trop
+// souvent pour l'affirmer au prospect. Il sert à trier les fiches.
+export const MODELE_EMAIL = `Une petite idée pour {{nom}}
 Bonjour,
 
-En cherchant « {{recherche}} » sur Google, je suis tombé sur votre fiche. En regardant, j'ai remarqué que {{constat}}.
+En cherchant « {{recherche}} » sur Google, je suis tombé sur votre fiche.
 
-Je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous parle, je peux vous montrer en deux minutes ce que ça donnerait pour vous, sans engagement.
+Je m'appelle Bas et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
 
-Bonne journée,
+Sans engagement, et si ce n'est pas le moment, aucun souci.
+
+Belle journée,
 Bas`;
 
 // Entreprises tout juste créées (registre Sirene) : elles n'ont souvent ni site ni
 // fiche Google, d'où un autre angle que « je suis tombé sur votre fiche ».
 export const CONSTAT_CREATION = "vous n'avez pas encore de site internet";
 
-export const MODELE_CREATION = `{{nom}}, félicitations pour le lancement
+export const MODELE_CREATION = `Félicitations pour le lancement de {{nom}}
 Bonjour,
 
-J'ai vu passer la création de {{nom}} à {{ville}}, félicitations ! En cherchant, j'ai remarqué que {{constat}}.
+J'ai vu passer la création de {{nom}} à {{ville}}, félicitations !
 
-Je fais des sites pour les entreprises d'Alsace (C'est bien beau). Les premiers mois, un site simple aide beaucoup à se faire connaître : si ça vous parle, je peux vous montrer en deux minutes ce que ça donnerait pour vous, sans engagement.
+Je m'appelle Bas et je fais des sites pour les entreprises d'Alsace (C'est bien beau). Les premiers mois, un site simple aide à se faire connaître. Si ça vous tente, je vous prépare gratuitement une page d'accueil à votre nom, pour que vous voyiez ce que ça donnerait. Vous la recevez par lien sous 3 jours ouvrés.
 
-Bonne journée,
+Sans engagement, et si ce n'est pas le moment, aucun souci.
+
+Belle journée,
 Bas`;
 
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au

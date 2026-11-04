@@ -145,9 +145,9 @@ Les garde-fous sont dans le serveur, pas seulement dans les consignes données �
 
 Avec la clé API Smartlead dans `.dev.vars` (`SMARTLEAD_API_KEY=…`, à prendre dans Smartlead → Settings → API Key), les fiches partent dans Smartlead en un clic et les réponses reviennent seules.
 
-1. Dans Smartlead, créer la campagne de la cible avec sa séquence. Elle peut utiliser `{{company_name}}`, `{{recherche}}`, `{{constat}}`, `{{source}}` et `{{ville}}`. Pour les nouvelles entreprises (registre Sirene), qui n'ont pas de fiche Google à citer, créer une deuxième campagne avec l'angle « félicitations pour le lancement ».
+1. Dans Smartlead, créer la campagne de la cible avec sa séquence. Elle peut utiliser `{{company_name}}`, `{{recherche}}`, `{{source}}` et `{{ville}}`. La colonne `{{constat}}` existe aussi, mais les règles qui la trouvent ne lisent que la page d'accueil et se trompent souvent : ne la citer que si chaque site a été vérifié, ou si Claude l'a écrite après avoir lu le site. Pour les nouvelles entreprises (registre Sirene), qui n'ont pas de fiche Google à citer, créer une deuxième campagne avec l'angle « félicitations pour le lancement ».
 2. Dans l'admin, **Cibles** → la cible : choisir la campagne Smartlead, et celle des nouvelles entreprises. Sans campagne pour les nouvelles entreprises, elles ne partent pas.
-3. Onglet **Prêt à contacter** : ouvrir chaque site quelques secondes pour vérifier que le constat est vrai. En cas de doute, passer la fiche en « À vérifier ».
+3. Onglet **Prêt à contacter** : le constat sert surtout à trier les fiches. Si la séquence le cite, ouvrir chaque site quelques secondes pour vérifier qu'il est vrai, et passer la fiche en « À vérifier » au moindre doute.
 4. **Envoyer dans Smartlead** ajoute les fiches les plus prioritaires à la campagne (50 par défaut, 400 au plus par clic) et les passe en « En campagne ». Rien ne part sans ce clic. Les adresses désinscrites ne repartent jamais, même si elles apparaissent sur une autre fiche, et Smartlead écarte aussi ses propres désinscrits : l'outil les passe alors en « Désinscrit ».
 5. Lancer la campagne dans Smartlead si elle est encore en brouillon.
 

@@ -317,7 +317,8 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(ligne('Domaine B'), /badge-nouveau[\s\S]*seulement une fiche Google[\s\S]*contact@domaine-b\.fr/);
     assert.match(ligne('Cave coopérative de Barr'), /badge-hors_cible/);
     // Adresse nominative : à écrire à la main, avec l'email prérempli.
-    assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Domaine%20D[^"]*j&#39;ai%20remarqu%C3%A9%20que%20vous%20n&#39;avez%20pas%20encore%20de%20site/);
+    assert.match(ligne('Domaine D'), /badge-a_ecrire[\s\S]*href="mailto:claire\.martin@gmail\.com\?subject=Une%20petite%20id%C3%A9e%20pour%20Domaine%20D[^"]*%C2%AB%20domaine%20viticole%20Barr%20%C2%BB/);
+    assert.doesNotMatch(ligne('Domaine D'), /remarqu%C3%A9/);
     // Pas d'email sur le site : Claude le cherche sur le web, et l'adresse doit figurer dans la page citée.
     assert.equal(apifyFinal.appels.recherches.length, 6); // E deux fois (pause_turn), G, H, I et J
     assert.ok(apifyFinal.appels.recherches.every((a) => a.entree.tools.some((t) => t.type === 'web_search_20260209')));

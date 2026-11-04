@@ -279,7 +279,7 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
       <div class="grille">
         ${
           p.constat || p.raison
-            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">${p.constat ? 'Constat pour l’email' : 'À regarder'}</h2><p class="carte-description">${p.constat ? 'La phrase qui suit « j’ai remarqué que » dans l’email 1.' : 'Pourquoi cette fiche n’est pas prête.'}</p></div></div>
+            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">${p.constat ? 'Constat pour l’email' : 'À regarder'}</h2><p class="carte-description">${p.constat ? 'Ce que l’analyse a vu sur le site. À vérifier avant de le citer dans un email.' : 'Pourquoi cette fiche n’est pas prête.'}</p></div></div>
                 <div class="carte-contenu"><p class="constat">${echapper(p.constat || p.raison)}</p></div></section>`
             : ''
         }
