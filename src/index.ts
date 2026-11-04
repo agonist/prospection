@@ -36,12 +36,13 @@ import {
 import { echapper, icone, nomLisible, page } from './html';
 import { enregistrerPilote, lancerRecherche, pageRecherches } from './recherches';
 import { tache } from './taches';
+import { enregistrerReglages, importerSmartlead, pageStrategie, refaireLePoint, telechargerLot } from './strategie';
 import { tableau } from './tableau';
 import { actionEmail, pageTraiter, sourceLien, traiter, trouverEmail } from './traiter';
 import { claudeActif } from './claude';
 import { mcp } from './mcp';
-import { natureEmail } from '../scripts/lib.mjs';
-import { RAISONS } from '../scripts/base.mjs';
+import { nomCourt } from '../scripts/lib.mjs';
+import { csv, enCampagne, ligneSmartlead, reponseCsv, sansNominatives, selectionEnvoi, sourceEnvoi } from './envoi';
 import { ENVOI_MAX, type Lead, campagnes, envoyerLeads, etatCampagne, smartleadActif } from './smartlead';
 
 // Redirige après une action, avec un message affiché en bas de l'écran.
@@ -278,9 +279,15 @@ async function fiche(id: string, env: Env, enregistre: boolean) {
     <div class="grille deux-colonnes">
       <div class="grille">
         ${
-          p.constat || p.raison
-            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">${p.constat ? 'Constat pour l’email' : 'À regarder'}</h2><p class="carte-description">${p.constat ? 'Ce que l’analyse a vu sur le site. À vérifier avant de le citer dans un email.' : 'Pourquoi cette fiche n’est pas prête.'}</p></div></div>
-                <div class="carte-contenu"><p class="constat">${echapper(p.constat || p.raison)}</p></div></section>`
+          p.raison
+            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">À regarder</h2><p class="carte-description">Pourquoi cette fiche n’est pas prête.</p></div></div>
+                <div class="carte-contenu"><p class="constat">${echapper(p.raison)}</p></div></section>`
+            : ''
+        }
+        ${
+          p.constat
+            ? `<section class="carte"><div class="carte-entete"><div><h2 class="carte-titre">Constat pour l’email</h2><p class="carte-description">Ce que l’analyse a vu sur le site. À vérifier avant de le citer dans un email.</p></div></div>
+                <div class="carte-contenu"><p class="constat">${echapper(p.constat)}</p></div></section>`
             : ''
         }
         ${
@@ -339,16 +346,6 @@ async function modifier(id: string, requete: Request, env: Env) {
   return Response.redirect(new URL(`/p/${encodeURIComponent(id)}?ok=1`, requete.url).toString(), 303);
 }
 
-const COLONNES_SMARTLEAD = ['email', 'first_name', 'company_name', 'salutation', 'recherche', 'constat', 'source', 'site', 'telephone', 'ville'];
-
-function csv(lignes: Record<string, unknown>[]) {
-  const champ = (valeur: unknown) => {
-    const texte = String(valeur ?? '');
-    return /[",\n;]/.test(texte) ? `"${texte.replace(/"/g, '""')}"` : texte;
-  };
-  return [COLONNES_SMARTLEAD.join(','), ...lignes.map((ligne) => COLONNES_SMARTLEAD.map((colonne) => champ(ligne[colonne])).join(','))].join('\n') + '\n';
-}
-
 // Les filtres de la liste, repris par l'export et l'envoi : seulement les fiches prêtes.
 function filtresEnvoi(donnees: FormData): Filtres {
   return {
@@ -364,36 +361,6 @@ function filtresEnvoi(donnees: FormData): Filtres {
   };
 }
 
-// Seules les adresses génériques ou au nom de l'entreprise partent. Une adresse
-// désinscrite ne repart jamais, même si elle apparaît sur une autre fiche.
-function selectionEnvoi(filtres: Filtres) {
-  const { where, valeurs } = clauses(filtres);
-  return {
-    selection: `${where} AND email_statut IN ('generique', 'entreprise') AND email <> ''
-    AND lower(email) NOT IN (SELECT lower(email) FROM prospects WHERE statut = 'desinscrit' AND email <> '')`,
-    valeurs,
-  };
-}
-
-// Une adresse classée « au nom de l'entreprise » avant que la règle des prénoms ne
-// s'affine (gilbert.eber@…) est revue au moment de partir : nominative, elle passe
-// en « À écrire » et ne part pas (règle CNIL).
-function sansNominatives(env: Env, fiches: Prospect[], maintenant: string) {
-  const nominatives = fiches.filter((p) => p.email_statut === 'entreprise' && natureEmail(p.email, p.nom, p.site) === 'nominative');
-  const ecartees = new Set(nominatives.map((p) => p.id));
-  return {
-    gardees: fiches.filter((p) => !ecartees.has(p.id)),
-    requetes: nominatives.map((p) =>
-      env.DB.prepare("UPDATE prospects SET statut = 'a_ecrire', email_statut = 'nominative', raison = ?, statut_le = ? WHERE id = ? AND statut = 'nouveau'").bind(RAISONS.ecrire, maintenant, p.id),
-    ),
-  };
-}
-
-const enCampagne = (env: Env, id: string, maintenant: string) =>
-  env.DB.prepare("UPDATE prospects SET statut = 'en_campagne', statut_le = ?1, contacte_le = COALESCE(contacte_le, ?1) WHERE id = ?2 AND statut = 'nouveau'").bind(maintenant, id);
-
-const sourceEnvoi = (p: Pick<Prospect, 'origine'>) => (p.origine === 'sirene' ? 'le registre des entreprises' : 'votre fiche Google');
-
 async function exporter(requete: Request, env: Env) {
   const donnees = await requete.formData();
   const filtres = filtresEnvoi(donnees);
@@ -406,24 +373,10 @@ async function exporter(requete: Request, env: Env) {
   if (donnees.get('marquer')) requetes.push(...results.map((p) => enCampagne(env, p.id, maintenant)));
   if (requetes.length) await env.DB.batch(requetes);
 
-  const corps = csv(
-    results.map((p) => ({
-      email: p.email,
-      first_name: '',
-      company_name: nomLisible(p.nom),
-      salutation: 'Bonjour,',
-      recherche: p.recherche,
-      constat: p.constat,
-      source: sourceEnvoi(p),
-      site: p.site,
-      telephone: p.telephone,
-      ville: p.ville,
-    })),
-  );
-  const nom = `smartlead-${filtres.cible || 'tout'}-${new Date().toISOString().slice(0, 10)}.csv`;
-  return new Response(corps, {
-    headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${nom}"` },
-  });
+  // Une adresse présente sur deux fiches ne part qu'une fois.
+  const vues = new Set<string>();
+  const uniques = results.filter((p) => !vues.has(p.email.toLowerCase()) && vues.add(p.email.toLowerCase()));
+  return reponseCsv(csv(uniques.map(ligneSmartlead)), `smartlead-${filtres.cible || 'tout'}-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
 // Envoie les fiches prêtes les plus prioritaires dans la campagne Smartlead de leur
@@ -468,7 +421,7 @@ async function envoyerSmartlead(requete: Request, env: Env) {
     email: p.email,
     first_name: '',
     last_name: '',
-    company_name: nomLisible(p.nom),
+    company_name: nomCourt(p.nom),
     website: p.site,
     location: p.ville,
     phone_number: p.telephone,
@@ -587,6 +540,11 @@ export default {
       if (url.search && !url.searchParams.has('message')) return Response.redirect(new URL(`/prospects${url.search}`, url).toString(), 301);
       return tableau(env);
     }
+    if (url.pathname === '/strategie' && requete.method === 'GET') return pageStrategie(url, env);
+    if (url.pathname === '/strategie/reglages' && requete.method === 'POST') return enregistrerReglages(requete, env);
+    if (url.pathname === '/strategie/point' && requete.method === 'POST') return refaireLePoint(requete, env);
+    if (url.pathname === '/strategie/lot' && requete.method === 'POST') return telechargerLot(requete, env);
+    if (url.pathname === '/strategie/import' && requete.method === 'POST') return importerSmartlead(requete, env);
     if (url.pathname === '/prospects' && requete.method === 'GET') return liste(url, env);
     if (url.pathname === '/recherches' && requete.method === 'GET') return pageRecherches(url, env);
     if (url.pathname === '/recherches' && requete.method === 'POST') return lancerRecherche(requete, env);

@@ -15,6 +15,7 @@ import { enrichirLot, reprendrePropositions } from './enrichir';
 import { nomLisible } from './html';
 import { piloter } from './pilote';
 import { synchroniser } from './smartlead';
+import { suivreStrategie } from './strategie';
 
 // En ligne, le plan gratuit impose de petits lots. En local (`pnpm local`), il
 // n'y a pas de limite : les variables du même nom les agrandissent.
@@ -327,5 +328,11 @@ export async function tache(env: Env) {
     await reprendrePropositions(env, maintenant);
   } catch (erreur) {
     await noter(env, 'erreur', `Recherche d’emails : ${String(erreur).slice(0, 300)}`).run();
+  }
+  // Mode autonome : le premier passage de la semaine fait le point et prépare les lots.
+  try {
+    await suivreStrategie(env, cibles, (niveau, message) => noter(env, niveau, message));
+  } catch (erreur) {
+    await noter(env, 'erreur', `Point de la semaine : ${String(erreur).slice(0, 300)}`).run();
   }
 }

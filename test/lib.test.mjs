@@ -99,3 +99,125 @@ test('reconnaît une réponse « stop », pas une réponse qui cite notre pied d
   assert.equal(demandeStop('Bonjour, on peut en parler ? Le stop-and-go du chantier me prend du temps, mais rappelez-moi la semaine prochaine pour voir ce que vous proposez.'), false);
   assert.equal(demandeStop(''), false);
 });
+
+test('raccourcit le nom pour l’objet de l’email, comme je le faisais à la main', async () => {
+  const { nomCourt } = await import('../scripts/lib.mjs');
+  const cas = [
+    ['EARL Domaine Jean-Paul Schmitt Vigneron, Alsace', 'Domaine Jean-Paul Schmitt'],
+    ["Domaine Colon Pierre - Vins d'Alsace", 'Domaine Colon Pierre'],
+    ['Domaine SCHOEPFER', 'Domaine Schoepfer'],
+    ['Les Funambules - Vins (Dégustations sur RDV)', 'Les Funambules'],
+    ['Ziegler Mauler et Fils GAEC', 'Ziegler Mauler et Fils'],
+    ["Maison Meyer • Sainte Joie • Arnta - Vins d'Alsace", 'Maison Meyer'],
+    ['Domaine Humbrecht 1619', 'Domaine Humbrecht'],
+    ['Domaine Fritz-Schmitt Vigneron Indépendant', 'Domaine Fritz-Schmitt'],
+    ['Vins MARZOLF s.c.e.a.', 'Vins Marzolf'],
+    ['Domaine d’Ollwiller', "Domaine d'Ollwiller"],
+    ["Vins d'alsace HORCHER", 'Vins Horcher'],
+    ["Domaine Bleger François Vins et chambres d'Hôtes", 'Domaine Bleger François'],
+    ["MAISON BRUN -Vins d'Alsace", 'Maison Brun'],
+    ['SASU METZ-BLEGER', 'Metz-Bleger'],
+    ['Domaine JOST Viticulteur Récoltant', 'Domaine Jost'],
+    ["Kuehn Vins d'Alsace", 'Vins Kuehn'],
+    ['vins thirian', 'Vins Thirian'],
+    ["Domaine MEYER Raphaël_Vins et Crémants d'Alsace", 'Domaine Meyer Raphaël'],
+    ['Sohler Et Fils', 'Sohler et Fils'],
+    ["Vins d'Alsace Eppelé Ammerschwihr en bio (dégustation avec rdv)", 'Vins Eppelé Ammerschwihr'],
+    ["Domaine de l'AU-DELA", "Domaine de l'Au-Dela"],
+    ['MS MENUISERIE ET FILS SARL', 'MS Menuiserie et Fils'],
+    // Ce qui fait partie du nom reste.
+    ["Maison des Vins d'Alsace", "Maison des Vins d'Alsace"],
+    ['Menuiserie Dupont', 'Menuiserie Dupont'],
+    ['Domaine Un', 'Domaine Un'],
+  ];
+  for (const [nom, attendu] of cas) assert.equal(nomCourt(nom), attendu, nom);
+});
+
+test('répartit les envois de la semaine selon les réponses, sans dépasser le stock', async () => {
+  const { repartir } = await import('../scripts/strategie.mjs');
+  // Sans résultat encore : parts égales.
+  assert.deepEqual(repartir(300, [{ cle: 'vin', stock: 500, contactes: 0, positifs: 0 }, { cle: 'artisan', stock: 500, contactes: 0, positifs: 0 }]), { vin: 150, artisan: 150 });
+  // Le stock manque d'un côté : le reste va à l'autre.
+  assert.deepEqual(repartir(300, [{ cle: 'vin', stock: 500, contactes: 0, positifs: 0 }, { cle: 'artisan', stock: 40, contactes: 0, positifs: 0 }]), { vin: 260, artisan: 40 });
+  // Une cible qui répond prend plus, l'autre garde de quoi apprendre (environ 20 %).
+  const parts = repartir(300, [{ cle: 'vin', stock: 900, contactes: 300, positifs: 15 }, { cle: 'artisan', stock: 900, contactes: 300, positifs: 0 }]);
+  assert.equal(parts.vin + parts.artisan, 300);
+  assert.ok(parts.vin > 200 && parts.artisan >= 50, JSON.stringify(parts));
+  // Pas de stock : rien.
+  assert.deepEqual(repartir(300, [{ cle: 'vin', stock: 0 }]), { vin: 0 });
+});
+
+test('le plan ralentit quand les réponses s’accumulent ou que les adresses rebondissent', async () => {
+  const { planifier, REGLAGES_DEFAUT } = await import('../scripts/strategie.mjs');
+  const cible = (cle, stock, aFaire = 50) => ({ cle, nom: cle, stock, contactes: 0, positifs: 0, desinscrits: 0, aFaire, aEcrire: 0, nonVerifiees: 0 });
+  const base = { reglages: { ...REGLAGES_DEFAUT, cibles: ['vin'] }, aTraiter: 0, rebonds: { contactes: 0, rebonds: 0 } };
+
+  const calme = planifier({ ...base, cibles: [cible('vin', 2000), cible('artisan', 100)] });
+  assert.equal(calme.volume, 300);
+  assert.equal(calme.parCible.find((c) => c.cle === 'vin').envoyer, 300);
+  assert.equal(calme.parCible.find((c) => c.cle === 'artisan').envoyer, 0);
+  assert.equal(calme.parCible.find((c) => c.cle === 'vin').chercher, false);
+  assert.equal(calme.alertes.length, 0);
+
+  // Moins de 3 semaines d'avance : le pilote cherche ; plus rien à chercher : alerte.
+  const court = planifier({ ...base, cibles: [cible('vin', 400)] });
+  assert.equal(court.parCible[0].chercher, true);
+  const vide = planifier({ ...base, cibles: [cible('vin', 120, 0)] });
+  assert.equal(vide.parCible[0].epuisee, true);
+  assert.match(vide.alertes.map((a) => a.texte).join(' '), /Pas assez de fiches prêtes : 120 cette semaine au lieu de 300[\s\S]*Plus rien à chercher pour « vin »/);
+
+  const charge = planifier({ ...base, aTraiter: 6, cibles: [cible('vin', 2000)] });
+  assert.equal(charge.volume, 150);
+  assert.match(charge.alertes[0].texte, /6 réponses à traiter : j'envoie moitié moins/);
+
+  const rebonds = planifier({ ...base, rebonds: { contactes: 200, rebonds: 10 }, cibles: [cible('vin', 2000)] });
+  assert.equal(rebonds.volume, 150);
+  assert.equal(rebonds.alertes[0].niveau, 'danger');
+});
+
+test('écarte du lot ce que je retirais à la main', async () => {
+  const { ecart } = await import('../scripts/strategie.mjs');
+  const vin = { ...CIBLES.vin, departements: ['67', '68'] };
+  const p = (champs) => ({ nom: 'Domaine Un', categorie: 'Établissement vinicole', email: 'contact@domaine-un.fr', site: 'https://domaine-un.fr', adresse: '1 rue des Vignes, 68340 Riquewihr', avis_google: 40, email_verifie: 1, ...champs });
+  assert.equal(ecart(p({}), vin), null);
+  assert.deepEqual(ecart(p({ email_verifie: 0 }), vin), { statut: null, raison: 'adresse non vérifiée' });
+  assert.equal(ecart(p({ avis_google: 479 }), vin).statut, 'hors_cible');
+  assert.match(ecart(p({ adresse: '3 rue de Rivoli, 75001 Paris' }), vin).raison, /hors zone : code postal 75001/);
+  assert.equal(ecart(p({ nom: 'Famille Hugel' }), vin).statut, 'hors_cible');
+  assert.equal(ecart(p({ categorie: 'Hôtel' }), vin).statut, 'hors_cible');
+  assert.equal(ecart(p({ email: 'gilbert.eber@orange.fr' }), vin).statut, 'a_ecrire');
+});
+
+test('lit l’export d’une campagne Smartlead', async () => {
+  const { lireExportSmartlead, retourSmartlead, semaineDe } = await import('../scripts/strategie.mjs');
+  const lignes = lireExportSmartlead(
+    [
+      'Email,Company Name,Status,Category,Reply Count,Is Unsubscribed,Is Bounced',
+      'contact@domaine-un.fr,Domaine Un,INPROGRESS,Interested,1,false,false',
+      'info@domaine-deux.fr,Domaine Deux,COMPLETED,Not Interested,1,false,false',
+      'contact@domaine-trois.fr,Domaine Trois,STOPPED,,0,true,false',
+      'contact@domaine-quatre.fr,Domaine Quatre,BLOCKED,,0,false,true',
+      'contact@domaine-cinq.fr,Domaine Cinq,INPROGRESS,Out Of Office,1,false,false',
+      'contact@domaine-six.fr,Domaine Six,INPROGRESS,,0,false,false',
+      'CONTACT@Domaine-Sept.fr,Domaine Sept,COMPLETED,Do Not Contact,1,false,false',
+    ].join('\n'),
+  );
+  assert.deepEqual(
+    lignes.map((l) => [l.email, retourSmartlead(l)]),
+    [
+      ['contact@domaine-un.fr', 'a_repondu'],
+      ['info@domaine-deux.fr', 'pas_interesse'],
+      ['contact@domaine-trois.fr', 'desinscrit'],
+      ['contact@domaine-quatre.fr', 'rebond'],
+      ['contact@domaine-cinq.fr', null],
+      ['contact@domaine-six.fr', null],
+      ['contact@domaine-sept.fr', 'desinscrit'],
+    ],
+  );
+  // Les colonnes de l'API (snake_case) se lisent aussi.
+  assert.equal(retourSmartlead(lireExportSmartlead('email,reply_count,is_unsubscribed\ncontact@x.fr,2,false\n')[0]), 'a_repondu');
+  // La semaine commence le lundi, à l'heure de Paris.
+  assert.equal(semaineDe(new Date('2026-11-04T10:00:00Z')), '2026-11-02');
+  assert.equal(semaineDe(new Date('2026-11-08T23:30:00Z')), '2026-11-09'); // lundi 0 h 30 à Paris
+  assert.equal(semaineDe(new Date('2026-11-08T22:30:00Z')), '2026-11-02'); // dimanche 23 h 30 à Paris
+});

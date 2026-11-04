@@ -12,7 +12,7 @@ const racine = join(import.meta.dirname, '..');
 const PORT_WORKER = 8797;
 
 function demarrerFauxApify(fiches) {
-  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [], hubertino: [], etatHubertino: 0, smartlead: [] };
+  const appels = { runs: [], etat: 0, claude: [], recherches: [], sirene: [], propositions: [], hubertino: [], etatHubertino: 0, smartlead: [], points: [] };
   // Hubertino : une fiche avec email, une fermée, une dont la visite du site a échoué.
   const lignesHubertino = [
     { _status: 'enriched', query: 'photographe Barr, Alsace, France', name: 'Studio Lumière', category: 'Photographe', phone: '03 88 00 00 01', email: 'contact@studio-lumiere.fr', website: null, address: '1 rue du Marché, 67140 Barr', city: 'Barr', rating: 4.8, reviews: 12, business_status: 'OPERATIONAL', location_link: 'https://www.google.com/maps/place/?q=place_id:ChIJ1', place_id: 'ChIJ1' },
@@ -194,6 +194,11 @@ function demarrerFauxApify(fiches) {
               ? { email: 'contact@domaine-j.fr', source: '' }
               : { email: '', source: '' };
           return reponse([{ type: 'text', text: `Voici : ${JSON.stringify(trouvaille)}` }]);
+        }
+        // Le point de la semaine : Claude reçoit les chiffres et le plan, en JSON.
+        if (String(entree.system ?? '').includes('Écris le point de la semaine')) {
+          appels.points.push(JSON.parse(texte));
+          return reponse([{ type: 'text', text: JSON.stringify({ texte: 'Cinq domaines sont prêts cette semaine, et je relance des recherches.', secteur: 'paysagistes', pourquoi: 'Beaucoup n’ont qu’une page Facebook.' }) }]);
         }
         const avis = avisPour(texte);
         json({
@@ -447,7 +452,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.match(recentes, /Domaine Nouveau EARL<\/a><span class="etiquette-recente"/);
     assert.match(await (await fetch(`${admin}/prospects?origine=sirene`)).text(), /Culture de la vigne/);
     const csv = await (await fetch(`${admin}/export`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', origine: 'sirene' }) })).text();
-    assert.match(csv, /contact@domaine-nouveau\.fr,,Domaine Nouveau EARL,"Bonjour,",création Barr,vous n'avez pas encore de site internet,le registre des entreprises/);
+    assert.match(csv, /contact@domaine-nouveau\.fr,,Domaine Nouveau,"Bonjour,",création Barr,vous n'avez pas encore de site internet,le registre des entreprises/);
     assert.equal(csv.trim().split('\n').length, 2);
   } finally {
     process.kill(-worker.pid);
@@ -819,6 +824,126 @@ test('avec une clé Smartlead, les fiches partent dans la campagne de la cible e
     const csv = await (await fetch(`${admin}/export`, { method: 'POST', body: new URLSearchParams({ cible: 'vin' }) })).text();
     assert.equal(csv.trim().split('\n').length, 2);
     assert.match(csv, /^contact@domaine-sept\.fr,/m);
+  } finally {
+    process.kill(-worker.pid);
+    faux.serveur.close();
+  }
+});
+
+test('mode autonome : le point de la semaine, le lot nettoyé, l’import Smartlead et les recherches relancées seules', { timeout: 120_000 }, async () => {
+  const fiche = (id, nom, email, avis, adresse = '1 rue des Vignes, 67140 Barr') => ({ placeId: id, title: nom, city: 'Barr', address: adresse, searchString: 'domaine viticole Barr', emails: [email], reviewsCount: avis });
+  const faux = await demarrerFauxApify([
+    fiche('M1', 'Domaine Un', 'contact@domaine-un.fr', 60),
+    fiche('M2', 'Domaine Deux', 'contact@domaine-deux.fr', 50),
+    fiche('M3', 'Domaine Trois', 'contact@domaine-trois.fr', 40),
+    fiche('M4', 'Domaine Quatre', 'contact@domaine-quatre.fr', 30),
+    fiche('M5', 'Grande Maison', 'info@grande-maison.fr', 500),
+    fiche('M6', 'Domaine Parisien', 'contact@domaine-parisien.fr', 20, '3 rue de Rivoli, 75001 Paris'),
+    fiche('M7', 'Domaine Un, le caveau', 'contact@domaine-un.fr', 10),
+    fiche('M8', 'EARL Domaine HUIT Vigneron, Alsace', 'contact@domaine-huit.fr', 20),
+  ]);
+  const persistance = mkdtempSync(join(tmpdir(), 'prospection-d1-'));
+  const vars = join(persistance, '.dev.vars');
+  writeFileSync(vars, `ACCESS_DESACTIVE=1\nAPIFY_TOKEN=jeton-test\nAPIFY_API=http://127.0.0.1:${faux.port}\nANTHROPIC_API_KEY=cle-test\nANTHROPIC_API=http://127.0.0.1:${faux.port}\n`);
+  execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local', '--persist-to', persistance], { cwd: racine, stdio: 'ignore' });
+  const port = PORT_WORKER + 5;
+  const worker = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--test-scheduled', '--persist-to', persistance, '--env-file', vars], {
+    cwd: racine,
+    stdio: 'ignore',
+    detached: true,
+  });
+  try {
+    const admin = `http://127.0.0.1:${port}`;
+    await attendre(admin);
+    const passage = () => fetch(`${admin}/__scheduled?cron=*+*+*+*+*`);
+    const statut = async (id) => (await (await fetch(`${admin}/p/${id}`)).text()).match(/class="badge badge-([a-z_]+)"/)[1];
+    const message = (reponse) => decodeURIComponent(new URL(reponse.headers.get('location')).searchParams.get('message'));
+    await fetch(`${admin}/recherches`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', metiers: 'domaine viticole', communes: 'Barr', max: '20' }), redirect: 'manual' });
+    await passage(); // Apify en cours
+    await passage(); // import
+    await passage(); // analyse
+    assert.equal(await statut('M5'), 'nouveau');
+
+    // Arrêté : rien ne se fait seul, le tableau de bord propose de le lancer.
+    assert.match(await (await fetch(`${admin}/`)).text(), /Le mode autonome est arrêté[\s\S]*href="\/strategie"/);
+    assert.match(await (await fetch(`${admin}/strategie`)).text(), /Lancer le mode autonome/);
+    assert.equal(faux.appels.points.length, 0);
+
+    // Lancé à 1 email par jour (5 par semaine) : le point se fait tout de suite, écrit par Claude.
+    const lancement = await fetch(`${admin}/strategie/reglages`, { method: 'POST', body: new URLSearchParams({ actif: '1', rythme: '1' }), redirect: 'manual' });
+    assert.equal(message(lancement), 'Mode autonome lancé : le point de la semaine est prêt');
+    assert.equal(faux.appels.points.length, 1);
+    const donnees = faux.appels.points[0];
+    assert.equal(donnees.plan.volume_prevu, 5);
+    assert.deepEqual(donnees.cibles_actuelles, ['Domaines viticoles', 'Bien-être', 'Artisans du bâtiment']);
+    // La grosse maison et le domaine hors d'Alsace sont écartés du lot, avec leur raison.
+    assert.equal(await statut('M5'), 'hors_cible');
+    assert.match(await (await fetch(`${admin}/p/M5`)).text(), /grosse maison : 500 avis Google/);
+    assert.equal(await statut('M6'), 'hors_cible');
+    assert.match(await (await fetch(`${admin}/p/M6`)).text(), /hors zone : code postal 75001/);
+
+    const strategie = await (await fetch(`${admin}/strategie`)).text();
+    assert.match(strategie, /Cinq domaines sont prêts cette semaine/);
+    assert.match(strategie, /Écrit par Claude/);
+    assert.match(strategie, /Un secteur à tester : paysagistes\.<\/strong> Beaucoup n’ont qu’une page Facebook\./);
+    assert.match(strategie, /action="\/cibles\/proposer"><input type="hidden" name="secteur" value="paysagistes">/);
+    // Cinq fiches prêtes (Domaine Un une seule fois), cinq prévues.
+    assert.match(strategie, /name="nombre" value="5" min="1" max="5"/);
+    assert.match(await (await fetch(`${admin}/`)).text(), /Le point de la semaine[\s\S]*5 fiches prêtes à envoyer cette semaine/);
+
+    // Le lot : les 4 meilleures, Domaine Un une seule fois, le nom raccourci pour l'objet.
+    const lot = await fetch(`${admin}/strategie/lot`, { method: 'POST', body: new URLSearchParams({ cible: 'vin', nombre: '4' }) });
+    assert.match(lot.headers.get('content-disposition'), /smartlead-vin-\d{4}-\d{2}-\d{2}\.csv/);
+    const lignes = (await lot.text()).trim().split('\n');
+    assert.equal(lignes[0], 'email,first_name,company_name,salutation,recherche,constat,source,site,telephone,ville');
+    assert.deepEqual(
+      lignes.slice(1).map((l) => l.split(',')[0]),
+      ['contact@domaine-un.fr', 'contact@domaine-deux.fr', 'contact@domaine-trois.fr', 'contact@domaine-quatre.fr'],
+    );
+    assert.equal(await statut('M1'), 'en_campagne');
+    assert.equal(await statut('M7'), 'en_campagne'); // même adresse : contactée aussi
+    assert.equal(await statut('M8'), 'nouveau');
+    const apres = await (await fetch(`${admin}/strategie`)).text();
+    assert.match(apres, /4 téléchargées/);
+    assert.match(apres, /name="nombre" value="1" min="1" max="1"/);
+
+    // L'export de la campagne Smartlead : une réponse, un stop, un rebond, un silence,
+    // une adresse importée à la main dans Smartlead, une inconnue.
+    const exportSmartlead = [
+      'Email,Company Name,Status,Category,Reply Count,Is Unsubscribed,Is Bounced',
+      'contact@domaine-un.fr,Domaine Un,INPROGRESS,Interested,1,false,false',
+      'contact@domaine-deux.fr,Domaine Deux,COMPLETED,Do Not Contact,1,false,false',
+      'contact@domaine-trois.fr,Domaine Trois,BLOCKED,,0,false,true',
+      'contact@domaine-quatre.fr,Domaine Quatre,INPROGRESS,,0,false,false',
+      'contact@domaine-huit.fr,Domaine Huit,INPROGRESS,,0,false,false',
+      'contact@inconnu.fr,Inconnu,INPROGRESS,,0,false,false',
+    ].join('\n');
+    const formulaire = new FormData();
+    formulaire.append('fichier', new Blob([exportSmartlead], { type: 'text/csv' }), 'export.csv');
+    const importe = await fetch(`${admin}/strategie/import`, { method: 'POST', body: formulaire, redirect: 'manual' });
+    assert.equal(message(importe), 'Import Smartlead : 5 adresses reconnues sur 6, 1 passée en campagne, 1 réponse, 1 désinscrit, 1 rebond');
+    assert.equal(await statut('M1'), 'a_repondu');
+    assert.equal(await statut('M7'), 'a_repondu');
+    assert.equal(await statut('M2'), 'desinscrit');
+    assert.equal(await statut('M3'), 'a_verifier');
+    assert.match(await (await fetch(`${admin}/p/M3`)).text(), /a rebondi dans Smartlead/);
+    assert.equal(await statut('M4'), 'en_campagne');
+    assert.equal(await statut('M8'), 'en_campagne');
+
+    // Plus de stock : au passage suivant, le pilote relance seul 10 recherches pour la cible.
+    await passage();
+    assert.equal(faux.appels.runs.length, 2);
+    assert.equal(faux.appels.runs[1].entree.searchStringsArray.length, 10);
+    assert.ok(!faux.appels.runs[1].entree.searchStringsArray.includes('domaine viticole Barr'));
+    assert.match(await (await fetch(`${admin}/recherches`)).text(), /lancée par le pilote automatique/);
+    // Le point de la semaine n'est pas refait à chaque passage.
+    assert.equal(faux.appels.points.length, 1);
+
+    // Refait à la main, il voit les réponses à traiter.
+    await fetch(`${admin}/strategie/point`, { method: 'POST', redirect: 'manual' });
+    assert.equal(faux.appels.points.length, 2);
+    assert.match(faux.appels.points[1].alertes.join(' '), /2 réponses à traiter/);
+    assert.match(await (await fetch(`${admin}/strategie`)).text(), /Dernier import : /);
   } finally {
     process.kill(-worker.pid);
     faux.serveur.close();

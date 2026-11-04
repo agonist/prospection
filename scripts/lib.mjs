@@ -430,3 +430,60 @@ export function demandeStop(corps) {
   if (/desinscri|desabonn|unsubscribe|ne (plus|pas) (me |m'|nous )?(contacter|recontacter|ecrire|solliciter|deranger|envoyer)|ne plus recevoir|arrete[rz]? de (me |m'|nous )|retirez[- ](moi|nous|notre|mon)|supprime[rz]? (moi|nous|notre adresse|mon adresse|nos coordonnees|mes coordonnees)|pas de (demarchage|prospection)/.test(texte)) return true;
   return texte.trim().length <= 80 && /\bstop\b/.test(texte);
 }
+
+// Le nom tel qu'on le dit dans un email (« Une petite idée pour {{company_name}} ») :
+// « EARL Domaine Jean-Paul SCHMITT Vigneron, Alsace » → « Domaine Jean-Paul Schmitt ».
+// Coupe ce qui décrit l'activité (après un tiret, une virgule, une parenthèse…), retire
+// les formes juridiques et remet les capitales à leur place.
+const FORMES_JURIDIQUES = /(^|\s)\(?(?:e\.?a\.?r\.?l|s\.?c\.?e\.?a|g\.?a\.?e\.?c|s\.?a\.?r\.?l|s\.?a\.?s\.?u?|e\.?u\.?r\.?l|s\.?n\.?c)\.?\)?(?=\s|$)/gi;
+const MOTS_DESCRIPTIFS = new Set(['vin', 'vins', 'vigneron', 'vignerons', 'viticulteur', 'viticulteurs', 'recoltant', 'grands', 'cremant', 'cremants', 'bio', 'biologique', 'biologiques', 'biodynamie', 'biodynamique', 'biodynamiques', 'degustation', 'vente', 'ventes']);
+const PARTICULES = new Set(['de', 'du', 'des', 'et', 'la', 'le', 'les', 'en', 'sur', 'au', 'aux', 'à', "d'", "l'", '&']);
+// « Maison des Vins » garde ses vins : après ces mots, « vins » fait partie du nom.
+const GENITIFS = new Set(['de', 'du', 'des', 'aux', 'les', 'la', 'le', "d'", "l'"]);
+const NOMS_DE_TETE = /^(domaine|maison|vins?|caves?|caveau|famille|ch[âa]teau|clos|les?|la|vignobles?|earl)\b/i;
+
+const sansAccent = (mot) => mot.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+function capitales(mot, premier) {
+  const bas = mot.toLowerCase();
+  if (!premier && PARTICULES.has(bas)) return bas;
+  if (!premier && /^[dl]'/i.test(mot)) return bas.slice(0, 2) + capitales(mot.slice(2), true);
+  // Un sigle (sans voyelle, comme HVE) reste en capitales.
+  if (mot.length <= 4 && !/[aeiouyàâäéèêëîïôöùûü]/i.test(mot)) return mot;
+  return bas.replace(/(^|[-'])(\p{L})/gu, (_, avant, lettre) => avant + lettre.toUpperCase());
+}
+
+export function nomCourt(nom) {
+  const brut = String(nom ?? '').normalize('NFC').replace(/[’`]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!brut) return '';
+  let n = brut.replace(FORMES_JURIDIQUES, ' ').replace(/(\p{L})\.(\p{Lu})/gu, '$1 $2');
+  n = n.split(/\s+[-–—|•·/]+\s*|\s*[|•·_]\s*|\s*,\s*|\s*\(/).map((morceau) => morceau.trim()).find((morceau) => /\p{L}/u.test(morceau)) ?? n;
+  n = n.replace(/\)$/, '').replace(/\s+\d{4}$/, '').trim();
+  let vins = false;
+  const prefixe = n.match(/^vins? d'alsace\s+(.+)$/i);
+  if (prefixe) {
+    n = prefixe[1];
+    vins = true;
+  }
+  const mots = n.split(' ');
+  const coupe = mots.findIndex((mot, i) => {
+    const simple = sansAccent(mot);
+    if (!MOTS_DESCRIPTIFS.has(simple) || GENITIFS.has(sansAccent(mots[i - 1] ?? 'de'))) return false;
+    return i >= 2 || (i === 1 && (simple === 'vin' || simple === 'vins'));
+  });
+  if (coupe > 0) {
+    vins ||= /^vins?$/.test(sansAccent(mots[coupe]));
+    mots.length = coupe;
+  }
+  while (mots.length > 1 && PARTICULES.has(sansAccent(mots.at(-1)))) mots.pop();
+  const toutEnBas = n === n.toLowerCase();
+  const propres = mots.map((mot, i) => {
+    const corps = mot.replace(/^[dl]'/i, '');
+    const capitalise = corps === corps.toUpperCase() && /\p{Lu}\p{Lu}/u.test(corps);
+    if (capitalise || toutEnBas) return capitales(mot, i === 0);
+    return i > 0 && /^(Et|De|Du|Des|La)$/.test(mot) ? mot.toLowerCase() : mot;
+  });
+  let resultat = propres.join(' ').trim();
+  if (vins && !NOMS_DE_TETE.test(resultat)) resultat = `Vins ${resultat}`;
+  return resultat || brut;
+}

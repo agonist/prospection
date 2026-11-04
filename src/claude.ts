@@ -358,3 +358,31 @@ async function chercherAnthropic(env: Env, e: Entreprise): Promise<Trouvaille | 
 export function chercherEmail(env: Env, e: Entreprise) {
   return openrouter(env) ? chercherOpenRouter(env, e) : chercherAnthropic(env, e);
 }
+
+// Le point du lundi : Claude lit les chiffres et le plan de la semaine, et les dit
+// à Bastien en quelques phrases, avec au plus un secteur à tester ensuite.
+export type MotDuPoint = { texte: string; secteur: string; pourquoi: string };
+
+const SCHEMA_POINT = {
+  type: 'object',
+  properties: { texte: { type: 'string' }, secteur: { type: 'string' }, pourquoi: { type: 'string' } },
+  required: ['texte', 'secteur', 'pourquoi'],
+  additionalProperties: false,
+};
+
+const SYSTEME_POINT = `Tu es le bras droit de Bastien, qui fait seul des sites pour les petites entreprises d'Alsace (C'est bien beau : sites vitrines de 390 à 790 €, boutiques de 1 290 à 1 990 €, entretien à 19 € par mois, maquette de page d'accueil offerte sous 3 jours ouvrés). Son outil de prospection trouve les entreprises sur Google Maps, prépare chaque semaine les lots d'emails à importer dans Smartlead et suit les réponses.
+
+Écris le point de la semaine à Bastien :
+- texte : 3 à 6 phrases courtes, en tutoyant Bastien, simples et directes. Dis ce qui s'est passé la semaine dernière, ce que l'outil fait cette semaine, et la chose la plus utile que Bastien peut faire. N'utilise que les chiffres fournis, n'en invente aucun, et ne promets aucun résultat. Pas de liste, pas de titre, pas de jargon. N'emploie jamais les mots « solution », « accompagnement », « sur-mesure », « clé en main » ni « digital ».
+- secteur : seulement si une cible s'épuise ou répond mal, un métier d'Alsace à tester ensuite, absent des cibles actuelles, au pluriel, en deux ou trois mots (« photographes », « paysagistes ») ; sinon une chaîne vide.
+- pourquoi : en une phrase, pourquoi ce métier a souvent un site absent ou daté ; vide si secteur est vide.`;
+
+export async function ecrirePoint(env: Env, donnees: unknown): Promise<MotDuPoint | null> {
+  const texte = await demanderJson(env, SYSTEME_POINT, JSON.stringify(donnees, null, 1), 'point', SCHEMA_POINT, 1200);
+  if (!texte) return null;
+  const debut = texte.indexOf('{');
+  const fin = texte.lastIndexOf('}');
+  const brut = JSON.parse(debut >= 0 && fin > debut ? texte.slice(debut, fin + 1) : texte) as Partial<MotDuPoint>;
+  const secteur = String(brut.secteur ?? '').trim();
+  return { texte: String(brut.texte ?? '').trim(), secteur, pourquoi: secteur ? String(brut.pourquoi ?? '').trim() : '' };
+}

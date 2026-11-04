@@ -2,6 +2,7 @@
 import { DELAI_TERMES_MS, chargerCibles, termesCible } from './cibles';
 import { claudeActif, depenseDuJour } from './claude';
 import { echapper, icone, page } from './html';
+import { resumePoint } from './strategie';
 
 const JOURS = 14;
 const REPONSES = "('a_repondu', 'maquette', 'client')";
@@ -55,8 +56,9 @@ function barres(lignes: { libelle: string; n: number; detail?: string; href?: st
 
 export async function tableau(env: Env) {
   const depuis = derniersJours()[0];
-  const [cibles, resultats] = await Promise.all([
+  const [cibles, strategie, resultats] = await Promise.all([
     chargerCibles(env),
+    resumePoint(env),
     env.DB.batch([
       env.DB.prepare('SELECT statut, COUNT(*) AS n FROM prospects GROUP BY statut'),
       env.DB.prepare(
@@ -171,6 +173,19 @@ export async function tableau(env: Env) {
     .map((j) => `<li class="journal-${echapper(j.niveau)}"><time>${new Date(j.le).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</time><span>${echapper(j.message)}</span></li>`)
     .join('');
 
+  // Le mode autonome : le point de la semaine en tête, ou de quoi le lancer.
+  const prevus = strategie.point?.plan.prevus ?? 0;
+  const carteStrategie = strategie.actif
+    ? strategie.point
+      ? `<section class="carte bloc">
+        <div class="carte-entete"><div><h2 class="carte-titre">${icone('strategie', 18)}Le point de la semaine</h2>
+          <p class="carte-description">${prevus ? `${nombre(prevus)} fiche${prevus > 1 ? 's' : ''} prête${prevus > 1 ? 's' : ''} à envoyer cette semaine.` : 'Aucune fiche prête à envoyer cette semaine.'}</p></div>
+          <a class="btn petit" href="/strategie">${icone('telecharger', 14)}Les lots</a></div>
+        <div class="carte-contenu"><p class="point-texte">${echapper(strategie.point.texte)}</p></div>
+      </section>`
+      : ''
+    : `<div class="alerte"><p>Le mode autonome est arrêté : les recherches et les lots se font à la main.</p><a class="btn contour petit" href="/strategie">${icone('strategie', 14)}Le lancer</a></div>`;
+
   const bienvenue = `<section class="carte bienvenue">
       <div class="carte-contenu">
         <h2 class="carte-titre">${icone('cibles', 18)}Première recherche</h2>
@@ -189,7 +204,7 @@ export async function tableau(env: Env) {
         ${icone('recherches')}<input type="search" name="q" placeholder="Nom, email, site, note…" aria-label="Rechercher un prospect"><kbd>/</kbd>
       </form>
     </header>
-    ${e.total ? '' : bienvenue}
+    ${e.total ? carteStrategie : bienvenue}
     <section class="carte files" aria-label="À faire">${aFaire}</section>
     <div class="grille tableau-de-bord">
       <section class="carte">

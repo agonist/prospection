@@ -2,6 +2,7 @@
 // une extraction à la fois, sans dépasser le nombre de recherches par jour choisi.
 import type { Cible } from './cibles';
 import { lancerCreations, lancerGoogleMaps, termesAFaire } from './lancements';
+import { RECHERCHES_PAR_JOUR, cherchesAuto } from './strategie';
 
 export const FICHES_PAR_RECHERCHE_PILOTE = 30;
 // Recherches regroupées dans une même extraction.
@@ -40,7 +41,9 @@ async function creationsAFaire(env: Env, cible: Cible) {
 // Rend vrai si une extraction a été lancée.
 export async function piloter(env: Env, cibles: Record<string, Cible>, noter: (niveau: 'info' | 'erreur', message: string) => D1PreparedStatement) {
   const actives = pilotees(cibles);
-  if (!actives.length) return false;
+  // Mode autonome : les cibles qui manquent de fiches cherchent aussi, sans réglage à la main.
+  const auto = (await cherchesAuto(env, cibles)).filter((cle) => !actives.some((c) => c.cle === cle && (c.pilote ?? 0) > 0));
+  if (!actives.length && !auto.length) return false;
   // Après une erreur, une heure de pause : pas de relance en boucle (crédit épuisé, clé invalide…).
   const [pause, derniere] = await env.DB.batch([
     env.DB.prepare("SELECT valeur FROM etat WHERE cle = 'pilote_pause'"),
@@ -65,6 +68,14 @@ export async function piloter(env: Env, cibles: Record<string, Cible>, noter: (n
       const termes = (await termesAFaire(env, cible)).slice(0, Math.min(reste, PAR_LANCEMENT));
       if (!termes.length) continue;
       await lancerGoogleMaps(env, cible.cle, termes, FICHES_PAR_RECHERCHE_PILOTE, { auto: true });
+      return true;
+    }
+    for (const cle of auto) {
+      const reste = RECHERCHES_PAR_JOUR - (faites[cle] ?? 0);
+      if (reste <= 0) continue;
+      const termes = (await termesAFaire(env, cibles[cle])).slice(0, Math.min(reste, PAR_LANCEMENT));
+      if (!termes.length) continue;
+      await lancerGoogleMaps(env, cle, termes, FICHES_PAR_RECHERCHE_PILOTE, { auto: true });
       return true;
     }
   } catch (erreur) {

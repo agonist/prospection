@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 4;
+export const VERSION_CIBLES = 5;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -81,7 +81,14 @@ export const CIBLES = {
       'Wettolsheim', 'Husseren-les-Châteaux', 'Voegtlinshoffen', 'Gueberschwihr', 'Westhalten', 'Soultzmatt', 'Orschwihr',
       'Bergholtz', 'Wuenheim', 'Cernay',
     ],
-    exclure: [/coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i],
+    exclure: [
+      /coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /cave des vignerons/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i,
+      // Catégories Google qui ne sont pas un domaine (testées en fin de texte : c'est la catégorie).
+      /(h[ôo]tel|restaurant( fran[çc]ais)?|g[îi]te|maison de vacances|r[ée]sidence h[ôo]teli[èe]re|location|circuit de randonn[ée]e|salle de r[ée]ception)$/i,
+      // Grandes maisons et caves coopératives : elles ont déjà une équipe ou une agence.
+      /\b(hugel|trimbach|weinbach|josmeyer|ostertag|bestheim|wolfberger|dopff|sparr|willm)\b/i,
+      /zind[- ]humbrecht/i, /marcel deiss/i, /rolly[- ]gassmann/i, /l[ée]on beyer/i, /kuentz[- ]bas/i, /arthur metz/i, /lucien albrecht/i, /\bmur[ée](\s|$)/i,
+    ],
     // Ce qu'un bon site doit avoir dans ce métier : Claude s'en sert pour juger les sites.
     attentes: 'Une boutique en ligne ou au moins la liste des vins avec leurs prix, la réservation d’une dégustation ou d’une visite, les horaires du caveau, une version en allemand pour les touristes, de vraies photos du domaine.',
     constats: [

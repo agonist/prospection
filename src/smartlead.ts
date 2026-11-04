@@ -185,7 +185,9 @@ export async function synchroniser(env: Env, cibles: Record<string, Cible>, note
 
   const maintenant = new Date().toISOString();
   const changer = (fiche: Fiche, statut: string) =>
-    env.DB.prepare('UPDATE prospects SET statut = ?, statut_le = ? WHERE id = ? AND statut = ?').bind(statut, maintenant, fiche.id, fiche.statut);
+    env.DB.prepare(
+      "UPDATE prospects SET statut = ?1, statut_le = ?2, repondu_le = CASE WHEN ?1 = 'a_repondu' THEN COALESCE(repondu_le, ?2) ELSE repondu_le END WHERE id = ?3 AND statut = ?4",
+    ).bind(statut, maintenant, fiche.id, fiche.statut);
   const requetes: D1PreparedStatement[] = [];
   const passees = new Set<string>();
 

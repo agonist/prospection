@@ -61,6 +61,8 @@ export type Prospect = {
   vu_le: string;
   statut_le: string;
   contacte_le: string | null;
+  repondu_le?: string | null;
+  rebond_le?: string | null;
   score?: number;
   verdict: string;
   qualite: number | null;
@@ -281,6 +283,7 @@ export function changerStatut(env: Env, id: string, statut: string, note: string
     `UPDATE prospects SET
       statut_le = CASE WHEN statut <> ?1 THEN ?2 ELSE statut_le END,
       contacte_le = CASE WHEN ?1 = 'en_campagne' AND contacte_le IS NULL THEN ?2 ELSE contacte_le END,
+      repondu_le = CASE WHEN ?1 IN ('a_repondu', 'maquette', 'client', 'pas_interesse') AND repondu_le IS NULL THEN ?2 ELSE repondu_le END,
       statut = ?1,
       note = COALESCE(?3, note)
     WHERE id = ?4`,

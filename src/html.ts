@@ -41,6 +41,7 @@ const TRACES = {
   site: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
   lieu: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
   activite: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  strategie: '<path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/><circle cx="12" cy="12" r="10"/>',
   poubelle: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
 };
 
@@ -258,6 +259,25 @@ h1 + .etiquette-recente { margin: 6px 0 0; }
 .barre-filtres { margin-bottom: 16px; }
 
 /* Alertes */
+.point-texte { font-size: 15px; line-height: 1.6; margin: 0 0 16px; max-width: 72ch; }
+.chiffres-semaine { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.chiffres-semaine div { border: 1px solid var(--bord); border-radius: 10px; padding: 10px 12px; }
+.chiffres-semaine dt { color: var(--attenue-texte); font-size: 12px; padding: 0; border: 0; }
+.chiffres-semaine dd { margin: 2px 0 0; padding: 0; border: 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.alertes-point { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.alertes-point li { padding: 8px 12px; border-radius: 8px; background: var(--attenue); font-size: 13px; }
+.alertes-point li.attention { background: color-mix(in srgb, var(--attention) 10%, var(--carte)); color: var(--attention); }
+.alertes-point li.danger { background: color-mix(in srgb, var(--danger) 10%, var(--carte)); color: var(--danger); }
+.alertes-point a { color: inherit; }
+.idee { margin-top: 16px; padding: 12px 14px; border: 1px dashed var(--champ); border-radius: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.idee p { margin: 0; flex: 1 1 280px; }
+.alerte.attention-texte { color: var(--attention); border-color: color-mix(in srgb, var(--attention) 35%, var(--bord)); background: color-mix(in srgb, var(--attention) 6%, var(--carte)); margin: 0 0 8px; }
+.lot-formulaire, .import-formulaire { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lot-formulaire input.court { width: 84px; }
+.cases { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.case { display: inline-flex; gap: 8px; align-items: center; font-weight: 400; }
+.historique-points { margin: 0; padding-left: 18px; display: grid; gap: 12px; }
+.historique-points p { margin: 4px 0 0; color: var(--attenue-texte); font-size: 13px; }
 .alerte { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px 10px 14px; border: 1px solid var(--bord); border-radius: 10px; margin-bottom: 16px; background: var(--carte); font-size: 13px; }
 .alerte p { margin: 0; flex: 1 1 260px; }
 .alerte.danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--bord)); background: color-mix(in srgb, var(--danger) 6%, var(--carte)); color: var(--danger); }
@@ -465,7 +485,7 @@ if (message) {
 }
 `;
 
-export type Rubrique = 'tableau' | 'prospects' | 'recherches' | 'cibles';
+export type Rubrique = 'tableau' | 'strategie' | 'prospects' | 'recherches' | 'cibles';
 
 export function page(titre: string, contenu: string, rubrique: Rubrique = 'prospects', tete = ''): Response {
   const lien = (cle: Rubrique, href: string, libelle: string) =>
@@ -480,7 +500,7 @@ export function page(titre: string, contenu: string, rubrique: Rubrique = 'prosp
   <aside class="barre">
     <a href="/" class="marque"><div class="marque-logo">Cb</div><div><strong>Prospection</strong><span>C'est bien beau</span></div></a>
     <div class="nav-titre">Outils</div>
-    <nav class="nav">${lien('tableau', '/', 'Tableau de bord')}${lien('prospects', '/prospects', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}${lien('cibles', '/cibles', 'Cibles')}</nav>
+    <nav class="nav">${lien('tableau', '/', 'Tableau de bord')}${lien('strategie', '/strategie', 'Stratégie')}${lien('prospects', '/prospects', 'Prospects')}${lien('recherches', '/recherches', 'Recherches')}${lien('cibles', '/cibles', 'Cibles')}</nav>
   </aside>
   <main class="contenu">${contenu}</main>
 </div><script>${SCRIPT}</script></body></html>`,

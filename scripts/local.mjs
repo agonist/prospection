@@ -18,6 +18,15 @@ if (!cle('APIFY_TOKEN') && !cle('HUBERTINO_API_KEY')) {
   process.exit(1);
 }
 
+// Déjà lancé (démarrage automatique, ou un autre terminal) : on ne lance pas un second serveur.
+try {
+  await fetch(`http://localhost:${PORT}/`);
+  console.log(`L’outil tourne déjà : http://localhost:${PORT}`);
+  process.exit(0);
+} catch {
+  // Rien sur le port : on lance.
+}
+
 execFileSync('npx', ['wrangler', 'd1', 'migrations', 'apply', 'prospection', '--local'], { cwd: racine, stdio: ['ignore', 'ignore', 'inherit'] });
 
 const worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--test-scheduled', '--var', 'IMPORT_PAR_PASSAGE:200', '--var', 'ANALYSES_PAR_PASSAGE:30'], { cwd: racine, stdio: ['ignore', 'pipe', 'inherit'] });

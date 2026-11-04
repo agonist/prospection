@@ -107,6 +107,27 @@ Ces fiches n'ont ni email ni site : elles partent en « Email à chercher » et 
 
 Le filtre « Récentes » montre les entreprises créées dans l'année, et celles qui sont sur Google sans site avec 5 avis ou moins (sans doute récentes). Une étiquette les signale dans la liste.
 
+## Mode autonome
+
+La page **Stratégie** fait tourner la prospection toute seule. Tu la lances une fois, et chaque semaine :
+
+- **Le point du lundi** : au premier passage de la semaine, l'outil lit les chiffres (contactés, réponses, stop, rebonds) et écrit le point : ce qui s'est passé, ce qu'il fait cette semaine, ce qu'il attend de toi. Claude l'écrit si sa clé est dans `.dev.vars` (et propose un secteur à tester quand une cible s'épuise), sinon ce sont les règles. Le bouton **Refaire le point** le recalcule.
+- **Le volume** : emails par jour dans Smartlead × 5 jours. Il est divisé par deux quand tu as trop de réponses à traiter (5 par défaut, pour tenir les 3 jours ouvrés des maquettes) ou quand plus de 3 % des adresses ont rebondi sur 30 jours.
+- **La répartition** : entre les cibles cochées (celles qui ont leur campagne dans Smartlead), selon leurs réponses positives sur 60 jours, chacune gardant environ 20 % pour continuer à apprendre, et jamais plus que son stock.
+- **Les lots** : pour chaque cible, les meilleures fiches prêtes, une fois par adresse, sans les adresses non vérifiées ou nominatives, les grosses maisons (plus de 350 avis Google), les fiches hors des départements de la cible, les catégories exclues et les adresses déjà contactées. Les fiches écartées passent en « Hors cible » ou « À écrire » avec leur raison. **Télécharger** donne le CSV et passe ses fiches en « En campagne » : c'est ton clic d'envoi, importe le fichier tout de suite dans la campagne Smartlead de la cible.
+- **Le stock** : quand une cible a moins de 3 semaines d'envois prêts, le pilote lance seul 10 recherches « métier commune » par jour pour elle, puis s'arrête. Quand il n'y a plus rien à chercher, le point le dit.
+- **Les réponses** : sans l'API de Smartlead, importe l'export de la campagne (Smartlead → la campagne → Leads → Export) dans **Les réponses de Smartlead**, une fois par semaine. Chaque adresse passe « En campagne » si elle ne l'était pas, une réponse passe en « A répondu » (ou « Pas intéressé »), un stop en « Désinscrit », un rebond en « À vérifier ». Un statut posé à la main ne bouge pas.
+
+Dans le CSV, le nom est raccourci pour l'objet de l'email : « EARL Domaine Jean-Paul SCHMITT Vigneron, Alsace » devient « Domaine Jean-Paul Schmitt ».
+
+### Démarrage automatique sur Mac
+
+```sh
+pnpm autostart
+```
+
+L'outil se lance à l'ouverture de session et redémarre seul s'il s'arrête (journal dans `~/Library/Logs/prospection.log`). Il tourne tant que le Mac est allumé et ne dort pas. `pnpm autostart off` l'enlève. Si l'outil tourne déjà, `pnpm local` le dit et ne lance pas un second serveur.
+
 ## Pilote automatique
 
 En haut de **Recherches**, le pilote lance seul les recherches, cible par cible, tant que `pnpm local` tourne :
