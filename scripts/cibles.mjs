@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 6;
+export const VERSION_CIBLES = 7;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -141,7 +141,13 @@ export const CIBLES = {
     ],
     metiers: ['menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon'],
     communes: VILLES,
-    exclure: [/leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i],
+    exclure: [
+      /leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i,
+      // Réseaux de fenêtres en franchise et groupes : ils ont leur site national.
+      /art (et|&) fen[êe]tres/i, /\btryba\b/i, /\bk ?par ?k\b/i, /lorenove/i, /r[ée]noval/i, /monsieur store/i, /\bgroupe\b/i,
+      // Catégories Google qui ne sont pas un artisan du bâtiment (testées en fin de texte : c'est la catégorie).
+      /(scierie|entreprise de pompes fun[èe]bres|entrepreneur sp[ée]cialis[ée] en t[ôo]lerie|chaudronnerie|service de sablage|service de serrurerie d'urgence|site d'entreprise)$/i,
+    ],
     attentes: 'Des photos de chantiers réalisés, une demande de devis en ligne, la zone d’intervention, les certifications (RGE, Qualibat…), les avis clients, un numéro et un email visibles.',
     constats: [
       'pasDeSite',

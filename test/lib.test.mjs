@@ -186,6 +186,16 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.equal(ecart(p({ nom: 'Famille Hugel' }), vin).statut, 'hors_cible');
   assert.equal(ecart(p({ categorie: 'Hôtel' }), vin).statut, 'hors_cible');
   assert.equal(ecart(p({ email: 'gilbert.eber@orange.fr' }), vin).statut, 'a_ecrire');
+
+  const artisan = { ...CIBLES.artisan, departements: ['67', '68'] };
+  const a = (nom, categorie) => ecart(p({ nom, categorie, email: 'contact@atelier.fr', site: 'https://atelier.fr' }), artisan);
+  assert.equal(a('Menuiserie Kleim', 'Atelier de menuiserie'), null);
+  assert.equal(a('Menuiserie Aluminium Jacob SAS', 'Atelier de métallerie'), null);
+  assert.equal(a('MLB Fermetures - Art et Fenêtres', 'Menuisier').statut, 'hors_cible');
+  assert.equal(a('Schmidt Groupe - Sites de production', 'Fabricant de meubles').statut, 'hors_cible');
+  assert.equal(a('Scierie Ehrhart', 'Scierie').statut, 'hors_cible');
+  assert.equal(a('Burstner SA', "Site d'entreprise").statut, 'hors_cible');
+  assert.equal(a('Serrurier Strasbourg', "Service de serrurerie d'urgence").statut, 'hors_cible');
 });
 
 test('lit l’export d’une campagne Smartlead', async () => {
