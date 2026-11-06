@@ -106,7 +106,8 @@ export function normaliser(fiche) {
     ficheGoogle: fiche.url ?? fiche.location_link ?? '',
     noteGoogle: fiche.totalScore ?? fiche.rating ?? null,
     avisGoogle: fiche.reviewsCount ?? fiche.reviews ?? null,
-    recherche: fiche.searchString ?? fiche.query ?? '',
+    // « plombier Metz, France » se lit « plombier Metz » dans l'email.
+    recherche: String(fiche.searchString ?? fiche.query ?? '').replace(/,\s*(alsace,\s*)?france\s*$/i, '').trim(),
     ferme: Boolean(fiche.permanentlyClosed || fiche.business_status === 'CLOSED_PERMANENTLY'),
     emails,
   };

@@ -75,6 +75,7 @@ test('choisit le constat selon l’ordre de la cible', () => {
 test('lit un export Apify comme un export Outscraper', () => {
   assert.equal(normaliser({ title: 'Domaine A', website: 'domaine-a.fr', city: 'Barr' }).site, 'https://domaine-a.fr');
   assert.deepEqual(normaliser({ name: 'Domaine B', site: 'https://b.fr', email_1: 'contact@b.fr' }).emails, ['contact@b.fr']);
+  assert.equal(normaliser({ title: 'Plomberie C', searchString: 'plombier Metz, France' }).recherche, 'plombier Metz');
 });
 
 test('lit l’export CSV de Smartlead, guillemets et retours à la ligne compris', () => {
@@ -187,7 +188,7 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.equal(ecart(p({ categorie: 'Hôtel' }), vin).statut, 'hors_cible');
   assert.equal(ecart(p({ email: 'gilbert.eber@orange.fr' }), vin).statut, 'a_ecrire');
 
-  const artisan = { ...CIBLES.artisan, departements: ['67', '68'] };
+  const artisan = CIBLES.artisan;
   const a = (nom, categorie) => ecart(p({ nom, categorie, email: 'contact@atelier.fr', site: 'https://atelier.fr' }), artisan);
   assert.equal(a('Menuiserie Kleim', 'Atelier de menuiserie'), null);
   assert.equal(a('Menuiserie Aluminium Jacob SAS', 'Atelier de métallerie'), null);
@@ -199,6 +200,7 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.equal(a('Jardins Meyer', 'Paysagiste'), null);
   assert.equal(a('Jardiland Colmar', 'Jardinerie').statut, 'hors_cible');
   assert.equal(a('ENGIE Home Services', 'Chauffagiste').statut, 'hors_cible');
+  assert.equal(ecart(p({ nom: 'Plomberie Metz', categorie: 'Plombier', adresse: '2 rue Serpenoise, 57000 Metz', email: 'contact@pm.fr', site: 'https://pm.fr' }), artisan), null);
 });
 
 test('lit l’export d’une campagne Smartlead', async () => {

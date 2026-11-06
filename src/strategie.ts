@@ -495,7 +495,7 @@ export async function pageStrategie(url: URL, env: Env) {
   const blocLots = `<section class="carte bloc">
       <div class="carte-entete"><div><h2 class="carte-titre">${icone('telecharger', 18)}Les lots de la semaine</h2>
         ${!importe && !smartleadActif(env) ? '<p class="alerte attention-texte">Avant ton premier lot, importe l’export de ta campagne Smartlead en cours (plus bas) : sinon je ne sais pas qui y est déjà.</p>' : ''}
-        <p class="carte-description">Les meilleures fiches d’abord. Déjà écartées : adresses non vérifiées ou nominatives, plus de ${AVIS_MAX} avis Google, hors Alsace, catégories exclues de la cible, adresses déjà contactées. Télécharge, puis importe le fichier dans la campagne Smartlead de la cible.</p></div></div>
+        <p class="carte-description">Les meilleures fiches d’abord. Déjà écartées : adresses non vérifiées ou nominatives, plus de ${AVIS_MAX} avis Google, hors des départements de la cible, catégories exclues de la cible, adresses déjà contactées. Télécharge, puis importe le fichier dans la campagne Smartlead de la cible.</p></div></div>
       ${lignesLots ? `<div class="tableau"><table><thead><tr><th>Cible</th><th class="chiffre">Prévu</th><th class="chiffre">Prêtes</th><th class="chiffre">Réponses positives</th><th>Lot</th></tr></thead><tbody>${lignesLots}</tbody></table></div>` : '<div class="carte-contenu"><p class="discret">Aucune cible n’envoie : coche-les dans les réglages.</p></div>'}
     </section>`;
 

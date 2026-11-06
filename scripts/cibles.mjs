@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 8;
+export const VERSION_CIBLES = 9;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -64,15 +64,15 @@ export const VILLES = [
   'Kingersheim', 'Mulhouse', 'Illzach', 'Rixheim', 'Riedisheim', 'Saint-Louis', 'Huningue', 'Altkirch',
 ];
 
-// Bourgs de 2 500 à 5 000 habitants environ, où beaucoup d'artisans ont leur atelier.
-export const BOURGS = [
-  'Lauterbourg', 'Seltz', 'Soultz-sous-Forêts', 'Niederbronn-les-Bains', 'Reichshoffen', 'Ingwiller', 'Bouxwiller', 'Val-de-Moder',
-  'Sarre-Union', 'Hochfelden', 'Truchtersheim', 'Drusenheim', 'Gambsheim', 'La Wantzenau', 'Vendenheim', 'Eckbolsheim', 'Wasselonne',
-  'Marlenheim', 'Mutzig', 'Schirmeck', 'Rosheim', 'Fegersheim', 'Eschau', 'Barr', 'Villé', 'Marckolsheim', 'Rhinau',
-  'Sainte-Marie-aux-Mines', 'Kaysersberg Vignoble', 'Horbourg-Wihr', 'Neuf-Brisach', 'Munster', 'Rouffach', 'Bollwiller', 'Wittelsheim',
-  'Pfastatt', 'Sausheim', 'Ottmarsheim', 'Habsheim', 'Brunstatt-Didenheim', 'Masevaux-Niederbruck', 'Dannemarie', 'Sierentz',
-  'Blotzheim', 'Ferrette',
+// Grandes villes autour de l'Alsace (Lorraine, Vosges, Franche-Comté) : une recherche
+// y rapporte des fiches que les communes voisines ne recoupent pas. Écrites avec
+// « , France » pour qu'Hubertino ne les cherche pas en Alsace.
+export const VILLES_VOISINES = [
+  'Metz, France', 'Thionville, France', 'Forbach, France', 'Sarreguemines, France', 'Saint-Avold, France', 'Sarrebourg, France',
+  'Nancy, France', 'Lunéville, France', 'Toul, France', 'Épinal, France', 'Saint-Dié-des-Vosges, France', 'Remiremont, France',
+  'Belfort, France', 'Montbéliard, France', 'Besançon, France', 'Vesoul, France', 'Pontarlier, France',
 ];
+export const DEPARTEMENTS_VOISINS = ['57', '54', '88', '90', '25', '70'];
 
 export const CIBLES = {
   vin: {
@@ -153,7 +153,8 @@ export const CIBLES = {
       'menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon',
       'chauffagiste', 'plaquiste', 'façadier', 'métallier', 'paysagiste',
     ],
-    communes: [...VILLES, ...BOURGS],
+    communes: [...VILLES, ...VILLES_VOISINES],
+    departements: ['67', '68', ...DEPARTEMENTS_VOISINS],
     exclure: [
       /leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i,
       // Réseaux de fenêtres en franchise et groupes : ils ont leur site national.

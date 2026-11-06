@@ -131,6 +131,7 @@ export async function chargerCibles(env: Env): Promise<Record<string, Cible>> {
           communes: unir(actuelle.communes, defaut.communes, normaliserTerme),
           exclure: unir(actuelle.exclure, defaut.exclure, (motif) => motif.source),
           naf: unir(actuelle.naf, defaut.naf ?? [], codeNaf),
+          departements: unir(actuelle.departements ?? [], defaut.departements ?? []),
           attentes: actuelle.attentes || defaut.attentes || '',
         }
       : { cle, ...defaut };
