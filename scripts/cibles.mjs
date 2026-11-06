@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 7;
+export const VERSION_CIBLES = 8;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -62,6 +62,16 @@ export const VILLES = [
   'Lingolsheim', 'Ostwald', 'Illkirch-Graffenstaden', 'Geispolsheim', 'Molsheim', 'Obernai', 'Erstein', 'Benfeld', 'Sélestat',
   'Ribeauvillé', 'Colmar', 'Wintzenheim', 'Ensisheim', 'Guebwiller', 'Soultz-Haut-Rhin', 'Cernay', 'Thann', 'Wittenheim',
   'Kingersheim', 'Mulhouse', 'Illzach', 'Rixheim', 'Riedisheim', 'Saint-Louis', 'Huningue', 'Altkirch',
+];
+
+// Bourgs de 2 500 à 5 000 habitants environ, où beaucoup d'artisans ont leur atelier.
+export const BOURGS = [
+  'Lauterbourg', 'Seltz', 'Soultz-sous-Forêts', 'Niederbronn-les-Bains', 'Reichshoffen', 'Ingwiller', 'Bouxwiller', 'Val-de-Moder',
+  'Sarre-Union', 'Hochfelden', 'Truchtersheim', 'Drusenheim', 'Gambsheim', 'La Wantzenau', 'Vendenheim', 'Eckbolsheim', 'Wasselonne',
+  'Marlenheim', 'Mutzig', 'Schirmeck', 'Rosheim', 'Fegersheim', 'Eschau', 'Barr', 'Villé', 'Marckolsheim', 'Rhinau',
+  'Sainte-Marie-aux-Mines', 'Kaysersberg Vignoble', 'Horbourg-Wihr', 'Neuf-Brisach', 'Munster', 'Rouffach', 'Bollwiller', 'Wittelsheim',
+  'Pfastatt', 'Sausheim', 'Ottmarsheim', 'Habsheim', 'Brunstatt-Didenheim', 'Masevaux-Niederbruck', 'Dannemarie', 'Sierentz',
+  'Blotzheim', 'Ferrette',
 ];
 
 export const CIBLES = {
@@ -139,14 +149,19 @@ export const CIBLES = {
       '43.34Z Peinture et vitrerie',
       '43.99C Maçonnerie générale',
     ],
-    metiers: ['menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon'],
-    communes: VILLES,
+    metiers: [
+      'menuisier', 'plombier', 'électricien', 'couvreur', 'charpentier', 'carreleur', 'peintre en bâtiment', 'maçon',
+      'chauffagiste', 'plaquiste', 'façadier', 'métallier', 'paysagiste',
+    ],
+    communes: [...VILLES, ...BOURGS],
     exclure: [
       /leroy merlin/i, /castorama/i, /brico/i, /\bpoint p\b/i, /lapeyre/i, /franchis/i,
       // Réseaux de fenêtres en franchise et groupes : ils ont leur site national.
       /art (et|&) fen[êe]tres/i, /\btryba\b/i, /\bk ?par ?k\b/i, /lorenove/i, /r[ée]noval/i, /monsieur store/i, /\bgroupe\b/i,
+      // Grands réseaux du chauffage et de l'énergie, jardineries.
+      /\b(engie|dalkia|proxiserve|idex|effy|hellio|edf)\b/i, /\b(jardiland|truffaut|botanic|gamm vert|point vert|villaverde)\b/i,
       // Catégories Google qui ne sont pas un artisan du bâtiment (testées en fin de texte : c'est la catégorie).
-      /(scierie|entreprise de pompes fun[èe]bres|entrepreneur sp[ée]cialis[ée] en t[ôo]lerie|chaudronnerie|service de sablage|service de serrurerie d'urgence|site d'entreprise)$/i,
+      /(scierie|entreprise de pompes fun[èe]bres|entrepreneur sp[ée]cialis[ée] en t[ôo]lerie|chaudronnerie|service de sablage|service de serrurerie d'urgence|site d'entreprise|jardinerie|fleuriste)$/i,
     ],
     attentes: 'Des photos de chantiers réalisés, une demande de devis en ligne, la zone d’intervention, les certifications (RGE, Qualibat…), les avis clients, un numéro et un email visibles.',
     constats: [

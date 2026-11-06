@@ -196,6 +196,9 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.equal(a('Scierie Ehrhart', 'Scierie').statut, 'hors_cible');
   assert.equal(a('Burstner SA', "Site d'entreprise").statut, 'hors_cible');
   assert.equal(a('Serrurier Strasbourg', "Service de serrurerie d'urgence").statut, 'hors_cible');
+  assert.equal(a('Jardins Meyer', 'Paysagiste'), null);
+  assert.equal(a('Jardiland Colmar', 'Jardinerie').statut, 'hors_cible');
+  assert.equal(a('ENGIE Home Services', 'Chauffagiste').statut, 'hors_cible');
 });
 
 test('lit l’export d’une campagne Smartlead', async () => {
