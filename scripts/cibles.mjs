@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 9;
+export const VERSION_CIBLES = 10;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -102,6 +102,8 @@ export const CIBLES = {
       /coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /cave des vignerons/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i,
       // Catégories Google qui ne sont pas un domaine (testées en fin de texte : c'est la catégorie).
       /(h[ôo]tel|restaurant( fran[çc]ais)?|g[îi]te|maison de vacances|r[ée]sidence h[ôo]teli[èe]re|location|circuit de randonn[ée]e|salle de r[ée]ception)$/i,
+      // Les mêmes, et d'autres, quand Google les donne en anglais (fiches venues d'Hubertino).
+      /(hotel|restaurant|guest house|bed & breakfast|cottage|chalet|holiday apartment( rental)?|vacation home rental agency|campground|hiking area|park|tourist attraction|(history )?museum|banquet hall|function room facility|wedding venue|event venue|farm shop|butcher shop|foie gras producer|fruit and vegetable processing|mineral water company|manufacturer|gift shop|wine bar|bar)$/i,
       // Grandes maisons et caves coopératives : elles ont déjà une équipe ou une agence.
       /\b(hugel|trimbach|weinbach|josmeyer|ostertag|bestheim|wolfberger|dopff|sparr|willm)\b/i,
       /zind[- ]humbrecht/i, /marcel deiss/i, /rolly[- ]gassmann/i, /l[ée]on beyer/i, /kuentz[- ]bas/i, /arthur metz/i, /lucien albrecht/i, /\bmur[ée](\s|$)/i,
@@ -163,6 +165,7 @@ export const CIBLES = {
       /\b(engie|dalkia|proxiserve|idex|effy|hellio|edf)\b/i, /\b(jardiland|truffaut|botanic|gamm vert|point vert|villaverde)\b/i,
       // Catégories Google qui ne sont pas un artisan du bâtiment (testées en fin de texte : c'est la catégorie).
       /(scierie|entreprise de pompes fun[èe]bres|entrepreneur sp[ée]cialis[ée] en t[ôo]lerie|chaudronnerie|service de sablage|service de serrurerie d'urgence|site d'entreprise|jardinerie|fleuriste)$/i,
+      /(emergency locksmith service|locksmith|sawmill|funeral home|sheet metal contractor|sandblasting service|corporate office|garden center|florist|hardware store|home improvement store|building materials store)$/i,
     ],
     attentes: 'Des photos de chantiers réalisés, une demande de devis en ligne, la zone d’intervention, les certifications (RGE, Qualibat…), les avis clients, un numéro et un email visibles.',
     constats: [

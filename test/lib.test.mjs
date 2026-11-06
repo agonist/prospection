@@ -186,6 +186,10 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.match(ecart(p({ adresse: '3 rue de Rivoli, 75001 Paris' }), vin).raison, /hors zone : code postal 75001/);
   assert.equal(ecart(p({ nom: 'Famille Hugel' }), vin).statut, 'hors_cible');
   assert.equal(ecart(p({ categorie: 'Hôtel' }), vin).statut, 'hors_cible');
+  assert.equal(ecart(p({ categorie: 'Hotel, Cottage, Extended stay hotel, Wedding venue' }), vin).statut, 'hors_cible');
+  assert.equal(ecart(p({ categorie: 'Hiking area' }), vin).statut, 'hors_cible');
+  assert.equal(ecart(p({ categorie: 'Winery, Wine store, Lodge' }), vin), null);
+  assert.equal(ecart(p({ categorie: 'Liquor store, Lodge' }), vin), null);
   assert.equal(ecart(p({ email: 'gilbert.eber@orange.fr' }), vin).statut, 'a_ecrire');
 
   const artisan = CIBLES.artisan;
@@ -200,6 +204,9 @@ test('écarte du lot ce que je retirais à la main', async () => {
   assert.equal(a('Jardins Meyer', 'Paysagiste'), null);
   assert.equal(a('Jardiland Colmar', 'Jardinerie').statut, 'hors_cible');
   assert.equal(a('ENGIE Home Services', 'Chauffagiste').statut, 'hors_cible');
+  assert.equal(a('Serrurier Kallax', 'Emergency locksmith service, Window installation service').statut, 'hors_cible');
+  assert.equal(a('Menuiserie MEI', 'Woodworker, Furniture store'), null);
+  assert.equal(a('Jardins Meyer', 'Landscaper, Garden center'), null);
   assert.equal(ecart(p({ nom: 'Plomberie Metz', categorie: 'Plombier', adresse: '2 rue Serpenoise, 57000 Metz', email: 'contact@pm.fr', site: 'https://pm.fr' }), artisan), null);
 });
 

@@ -116,7 +116,9 @@ export function normaliser(fiche) {
 export function exclusion(prospect, cible) {
   if (!prospect.nom) return 'fiche sans nom';
   if (prospect.ferme) return 'fermé définitivement';
-  const texte = `${prospect.nom} ${prospect.categorie}`;
+  // Hubertino donne toutes les catégories Google (« Hotel, Cottage, Wedding venue ») : la première
+  // est la principale, c'est elle qui dit ce qu'est l'entreprise.
+  const texte = `${prospect.nom} ${String(prospect.categorie ?? '').split(',')[0].trim()}`;
   const motif = cible.exclure.find((regle) => regle.test(texte));
   return motif ? `hors cible : « ${texte.match(motif)[0]} »` : null;
 }
