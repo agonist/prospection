@@ -54,7 +54,7 @@ Bastien`;
 // À augmenter quand on ajoute des métiers ou des communes ci-dessous : au
 // lancement suivant, l'admin les ajoute aux cibles existantes, sans rien retirer
 // de ce qui a été modifié à la main.
-export const VERSION_CIBLES = 5;
+export const VERSION_CIBLES = 6;
 
 // Villes et bourgs d'Alsace de plus de 5 000 habitants environ, du nord au sud.
 export const VILLES = [
@@ -67,7 +67,7 @@ export const VILLES = [
 export const CIBLES = {
   vin: {
     nom: 'Domaines viticoles',
-    metiers: ['domaine viticole', 'vigneron'],
+    metiers: ['domaine viticole', 'vigneron', 'viticulteur'],
     // Codes d'activité (NAF) des nouvelles entreprises à chercher dans le registre Sirene.
     naf: ['01.21Z Culture de la vigne', '11.02B Vinification'],
     // Villages de la route des vins d'Alsace, du nord au sud.
@@ -80,6 +80,13 @@ export const CIBLES = {
       'Mittelwihr', 'Bennwihr', 'Sigolsheim', 'Kientzheim', 'Katzenthal', 'Niedermorschwihr', 'Ingersheim', 'Wintzenheim',
       'Wettolsheim', 'Husseren-les-Châteaux', 'Voegtlinshoffen', 'Gueberschwihr', 'Westhalten', 'Soultzmatt', 'Orschwihr',
       'Bergholtz', 'Wuenheim', 'Cernay',
+      // Ajoutés ensuite : le nord (Wissembourg), la Couronne d'Or, le piémont de Barr et le sud vers Thann.
+      'Cleebourg', 'Rott', 'Steinseltz', 'Oberhoffen-lès-Wissembourg',
+      'Westhoffen', 'Balbronn', 'Wangen', 'Nordheim', 'Kirchheim', 'Odratzheim', 'Scharrachbergheim-Irmstett', 'Soultz-les-Bains',
+      'Avolsheim', 'Ergersheim', 'Rosenwiller', 'Bischoffsheim', 'Bernardswiller', 'Goxwiller', 'Gertwiller', 'Zellwiller',
+      'Stotzheim', 'Eichhoffen', 'Bourgheim', 'Saint-Pierre', 'Reichsfeld', 'Bernardvillé', 'Dieffenthal',
+      'Ostheim', 'Colmar', 'Obermorschwihr', 'Hattstatt', 'Herrlisheim-près-Colmar', 'Soultz-Haut-Rhin', 'Bergholtz-Zell',
+      'Berrwiller', 'Hartmannswiller', 'Wattwiller', 'Uffholtz', 'Steinbach', 'Leimbach', 'Vieux-Thann',
     ],
     exclure: [
       /coop[ée]rative/i, /\bcave (vinicole|de)\b/i, /cave des vignerons/i, /n[ée]goce/i, /\bcaviste\b/i, /\bbar\b/i,

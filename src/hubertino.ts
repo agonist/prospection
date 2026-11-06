@@ -50,7 +50,7 @@ export async function lancerHubertino(env: Env, metiers: string[], communes: str
   return `${PREFIXE}${reponse.scrape.id}`;
 }
 
-type Scrape = { status: string; resultCount?: number | null };
+type Scrape = { status: string; resultCount?: number | null; error?: string | null };
 
 function identifiant(runId: string) {
   return encodeURIComponent(runId.slice(PREFIXE.length));
@@ -63,6 +63,16 @@ export async function etatHubertino(env: Env, runId: string) {
   const reponse = await appeler<{ scrape?: Scrape } & Scrape>(env, `/scrapes/${identifiant(runId)}`);
   const status = (reponse.scrape ?? reponse).status;
   return ETATS[status] ?? status;
+}
+
+// Le message d'Hubertino quand une extraction a échoué (champ `error` du scrape).
+export async function erreurHubertino(env: Env, runId: string) {
+  try {
+    const reponse = await appeler<{ scrape?: Scrape } & Scrape>(env, `/scrapes/${identifiant(runId)}`);
+    return String((reponse.scrape ?? reponse).error ?? '').slice(0, 300);
+  } catch {
+    return '';
+  }
 }
 
 type Ligne = Record<string, unknown> & {

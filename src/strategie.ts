@@ -4,6 +4,7 @@
 import {
   AVIS_MAX,
   RECHERCHES_PAR_JOUR,
+  RECHERCHES_URGENCE,
   SEMAINES_DE_STOCK,
   ecart,
   lireExportSmartlead,
@@ -217,29 +218,28 @@ export async function suivreStrategie(env: Env, cibles: Record<string, Cible>, n
 }
 
 // Les cibles qui manquent de fiches (moins de 3 semaines d'envois prêts) : le pilote
-// y lance des recherches, puis s'arrête quand le stock est revenu.
-export async function cherchesAuto(env: Env, cibles: Record<string, Cible>) {
+// y lance des recherches, plus vite sous une semaine, puis s'arrête quand le stock est revenu.
+export async function cherchesAuto(env: Env, cibles: Record<string, Cible>): Promise<{ cle: string; parJour: number }[]> {
   const r = await reglages(env);
   if (!r.actif) return [];
   const memo = await lireEtat(env, 'autonome_besoins');
   if (memo) {
-    const { jusqu, cles } = JSON.parse(memo) as { jusqu: string; cles: string[] };
-    if (Date.parse(jusqu) > Date.now()) return cles;
+    const { jusqu, besoins } = JSON.parse(memo) as { jusqu: string; besoins?: { cle: string; parJour: number }[] };
+    if (Array.isArray(besoins) && Date.parse(jusqu) > Date.now()) return besoins;
   }
   const point = await dernierPoint(env, semaineDe());
   const envoient = r.cibles.filter((cle) => cibles[cle]);
   const volume = point?.plan.volume ?? r.rythme * 5;
-  const cles: string[] = [];
+  const besoins: { cle: string; parJour: number }[] = [];
   for (const cle of envoient) {
     const part = point?.plan.parCible.find((c) => c.cle === cle)?.envoyer ?? 0;
     const besoin = Math.max(part, Math.round(volume / Math.max(1, envoient.length)));
     const { gardees } = await lotCible(env, cibles[cle]);
-    if (gardees.length < SEMAINES_DE_STOCK * besoin) cles.push(cle);
+    if (gardees.length < SEMAINES_DE_STOCK * besoin) besoins.push({ cle, parJour: gardees.length < besoin ? RECHERCHES_URGENCE : RECHERCHES_PAR_JOUR });
   }
-  await ecrireEtat(env, 'autonome_besoins', JSON.stringify({ jusqu: new Date(Date.now() + BESOINS_MS).toISOString(), cles })).run();
-  return cles;
+  await ecrireEtat(env, 'autonome_besoins', JSON.stringify({ jusqu: new Date(Date.now() + BESOINS_MS).toISOString(), besoins })).run();
+  return besoins;
 }
-export { RECHERCHES_PAR_JOUR };
 
 // --- Pages et formulaires ---
 

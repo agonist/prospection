@@ -398,7 +398,7 @@ test('une recherche lancée depuis l’admin finit en prospects analysés', { ti
     assert.equal(apifyFinal.appels.runs.length, 1);
     const formulaire = await (await fetch(`${admin}/recherches?cible=vin`)).text();
     assert.match(formulaire, /<strong>\d+ recherches à faire sur \d+<\/strong>/);
-    assert.match(formulaire, /<textarea id="metiers"[^>]*>domaine viticole\nvigneron</);
+    assert.match(formulaire, /<textarea id="metiers"[^>]*>domaine viticole\nvigneron\nviticulteur</);
     // Barr n'a été faite que pour « domaine viticole » : elle reste proposée pour « vigneron ».
     assert.match(formulaire.match(/<textarea id="communes"[^>]*>([^<]*)/)[1], /Barr/);
 

@@ -9,8 +9,10 @@ export const JOURS_OUVRES = 5;
 export const SEMAINES_DE_STOCK = 3;
 // Les grosses maisons (des centaines d'avis Google) ont presque toujours une agence.
 export const AVIS_MAX = 350;
-// Recherches « métier commune » lancées par jour quand une cible manque de fiches.
+// Recherches « métier commune » lancées par jour quand une cible manque de fiches,
+// et trois fois plus quand il reste moins d'une semaine d'envois prêts.
 export const RECHERCHES_PAR_JOUR = 10;
+export const RECHERCHES_URGENCE = 30;
 
 // rythme : emails par jour dans Smartlead (6 boîtes × 10 au départ).
 // reponses : au-delà de ce nombre de réponses à traiter, les envois ralentissent.

@@ -8,7 +8,7 @@ import { cleDoublon, exclusion, normaliser } from '../scripts/lib.mjs';
 import { analyser } from '../scripts/analyse.mjs';
 import { CONSTAT_CREATION } from '../scripts/cibles.mjs';
 import { compte, etat, fiches } from './apify';
-import { estHubertino } from './hubertino';
+import { erreurHubertino, estHubertino } from './hubertino';
 import { type Cible, chargerCibles } from './cibles';
 import { type Avis, claudeActif, juger } from './claude';
 import { enrichirLot, reprendrePropositions } from './enrichir';
@@ -131,13 +131,19 @@ async function avancer(env: Env, recherche: Recherche, cibles: Record<string, Ci
       notes.push(noter(env, 'info', `Recherche n°${recherche.id} : extraction ${fournisseur} ${ETATS_APIFY[statut] ?? statut}, ${trouvees} fiches trouvées.`, recherche.id));
     }
     if (ECHECS.includes(statut)) {
+      const raison = estHubertino(recherche.run_id) ? await erreurHubertino(env, recherche.run_id) : '';
       await env.DB.batch([
         ...notes,
-        noter(env, 'erreur', `Recherche n°${recherche.id} : l’extraction ${fournisseur} a échoué (${statut}). Voir ${fournisseur === 'Apify' ? 'console.apify.com → Runs' : 'hubertino.com → Scrapes'}.`, recherche.id),
+        noter(
+          env,
+          'erreur',
+          `Recherche n°${recherche.id} : l’extraction ${fournisseur} a échoué (${raison || statut}). Voir ${fournisseur === 'Apify' ? 'console.apify.com → Runs' : 'hubertino.com → Scrapes'}.`,
+          recherche.id,
+        ),
         env.DB.prepare("UPDATE recherches SET statut = 'echec', apify_statut = ?, apify_fiches = ?, erreur = ?, fini_le = ? WHERE id = ?").bind(
           statut,
           trouvees,
-          `${fournisseur} : ${statut}`,
+          `${fournisseur} : ${raison || statut}`,
           maintenant,
           recherche.id,
         ),
